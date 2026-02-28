@@ -223,7 +223,7 @@ export default function MetricsPage() {
                                     <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
                                     <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11 }} />
                                     <Tooltip
-                                        formatter={(v: number) => [`${v}%`, "Avg confidence"]}
+                                        formatter={(v: number | undefined) => [`${v != null ? v : 0}%`, "Avg confidence"]}
                                         labelFormatter={(label) => `${label}`}
                                     />
                                     <Bar dataKey="avgConfidence" name="Avg confidence" radius={[0, 4, 4, 0]} maxBarSize={32}>
@@ -263,7 +263,7 @@ export default function MetricsPage() {
                                     <CartesianGrid strokeDasharray="3 3" className="stroke-[var(--border)]" />
                                     <XAxis dataKey="label" tick={{ fontSize: 10 }} angle={-15} textAnchor="end" height={56} />
                                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={28} />
-                                    <Tooltip formatter={(v: number) => [v, "Forms"]} />
+                                    <Tooltip formatter={(v: number | undefined) => [v ?? 0, "Forms"]} />
                                     <Bar dataKey="count" name="NDS forms" radius={[4, 4, 0, 0]}>
                                         {drillDownData.map((entry, i) => (
                                             <Cell key={entry.label} fill={entry.fill} />
