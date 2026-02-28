@@ -6,6 +6,7 @@ import {
     FileStack,
     BookOpen,
     Brain,
+    BarChart3,
     PanelLeftClose,
     PanelLeft,
 } from "lucide-react";
@@ -16,6 +17,7 @@ const navItems = [
     { href: "/applications", label: "HDA Forms", icon: FileStack },
     { href: "/rules", label: "Rules Management", icon: BookOpen },
     { href: "/competency", label: "Competency Model", icon: Brain },
+    { href: "/metrics", label: "Metrics", icon: BarChart3 },
 ];
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {

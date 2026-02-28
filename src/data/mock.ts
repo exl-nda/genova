@@ -1,8 +1,25 @@
 export type DecisionStatus = "auto_approved" | "review_required" | "rejected";
 
+/** Real-world suppliers used for HDA forms; kept in a const for future supplier-level stats. */
+export const SUPPLIERS = [
+  "McKesson",
+  "AmerisourceBergen",
+  "Cardinal Health",
+  "Cencora",
+  "Morris & Dickson",
+] as const;
+export type Supplier = (typeof SUPPLIERS)[number];
+
+// Dosage types (used for metrics drill-down)
+export const DOSAGE_TYPES = ["Tablets", "Injectables", "Capsules", "Liquids", "Topicals"] as const;
+export type DosageType = (typeof DOSAGE_TYPES)[number];
+
 export interface Application {
   id: string;
   applicantName: string;
+  supplier: Supplier;
+  /** Optional for metrics: filter by dosage type */
+  dosageType?: DosageType;
   confidence: number;
   riskScore: number;
   competencyLevel: string;
@@ -13,11 +30,11 @@ export interface Application {
 }
 
 export const mockApplications: Application[] = [
-  { id: "APP-001", applicantName: "Jane Smith", confidence: 94, riskScore: 12, competencyLevel: "Highly Intelligent", ruleFlagsCount: 0, decisionStatus: "auto_approved", source: "Upload", timestamp: "2026-02-27T10:30:00Z" },
-  { id: "APP-002", applicantName: "John Doe", confidence: 78, riskScore: 35, competencyLevel: "Needs Training", ruleFlagsCount: 2, decisionStatus: "review_required", source: "API", timestamp: "2026-02-27T10:25:00Z" },
-  { id: "APP-003", applicantName: "Alice Brown", confidence: 88, riskScore: 22, competencyLevel: "Intelligent", ruleFlagsCount: 1, decisionStatus: "review_required", source: "Upload", timestamp: "2026-02-27T10:20:00Z" },
-  { id: "APP-004", applicantName: "Bob Wilson", confidence: 65, riskScore: 72, competencyLevel: "Needs Training", ruleFlagsCount: 4, decisionStatus: "rejected", source: "Upload", timestamp: "2026-02-27T10:15:00Z" },
-  { id: "APP-005", applicantName: "Carol Lee", confidence: 92, riskScore: 8, competencyLevel: "Highly Intelligent", ruleFlagsCount: 0, decisionStatus: "auto_approved", source: "API", timestamp: "2026-02-27T10:10:00Z" },
+  { id: "NDC-001", applicantName: "Jane Smith", supplier: "McKesson", dosageType: "Tablets", confidence: 94, riskScore: 12, competencyLevel: "Highly Intelligent", ruleFlagsCount: 0, decisionStatus: "auto_approved", source: "Upload", timestamp: "2026-02-27T10:30:00Z" },
+  { id: "NDC-002", applicantName: "John Doe", supplier: "AmerisourceBergen", dosageType: "Injectables", confidence: 78, riskScore: 35, competencyLevel: "Needs Training", ruleFlagsCount: 2, decisionStatus: "review_required", source: "API", timestamp: "2026-02-27T10:25:00Z" },
+  { id: "NDC-003", applicantName: "Alice Brown", supplier: "Cardinal Health", dosageType: "Capsules", confidence: 88, riskScore: 22, competencyLevel: "Intelligent", ruleFlagsCount: 1, decisionStatus: "review_required", source: "Upload", timestamp: "2026-02-27T10:20:00Z" },
+  { id: "NDC-004", applicantName: "Bob Wilson", supplier: "Cencora", dosageType: "Liquids", confidence: 65, riskScore: 72, competencyLevel: "Needs Training", ruleFlagsCount: 4, decisionStatus: "rejected", source: "Upload", timestamp: "2026-02-27T10:15:00Z" },
+  { id: "NDC-005", applicantName: "Carol Lee", supplier: "Morris & Dickson", dosageType: "Topicals", confidence: 92, riskScore: 8, competencyLevel: "Highly Intelligent", ruleFlagsCount: 0, decisionStatus: "auto_approved", source: "API", timestamp: "2026-02-27T10:10:00Z" },
 ];
 
 export interface CompetencyBand {
@@ -33,10 +50,7 @@ export const defaultCompetencyBands: CompetencyBand[] = [
   { accuracyMin: 75, accuracyMax: 80, label: "Needs Training", autoApproval: "disabled" },
 ];
 
-// Competency by dosage type (tablets, injectables, etc.)
-export const DOSAGE_TYPES = ["Tablets", "Injectables", "Capsules", "Liquids", "Topicals"] as const;
-export type DosageType = (typeof DOSAGE_TYPES)[number];
-
+// Competency by dosage type (tablets, injectables, etc.) — DOSAGE_TYPES moved up with Application
 export const defaultCompetencyBandsByDosage: Record<DosageType, CompetencyBand[]> = {
   Tablets: [
     { accuracyMin: 92, accuracyMax: 100, label: "Highly Intelligent", autoApproval: "enabled" },
@@ -65,6 +79,75 @@ export const defaultCompetencyBandsByDosage: Record<DosageType, CompetencyBand[]
   ],
 };
 
+/** Accuracy-over-time series for metrics page: key = supplier or dosage type. */
+export type MetricsDimension = "supplier" | "dosageType";
+
+export const mockAccuracyOverTimeBySupplier: Record<Supplier, { week: string; accuracy: number }[]> = {
+  McKesson: [
+    { week: "W1", accuracy: 91 },
+    { week: "W2", accuracy: 93 },
+    { week: "W3", accuracy: 92 },
+    { week: "W4", accuracy: 94 },
+  ],
+  AmerisourceBergen: [
+    { week: "W1", accuracy: 76 },
+    { week: "W2", accuracy: 78 },
+    { week: "W3", accuracy: 79 },
+    { week: "W4", accuracy: 80 },
+  ],
+  "Cardinal Health": [
+    { week: "W1", accuracy: 85 },
+    { week: "W2", accuracy: 86 },
+    { week: "W3", accuracy: 88 },
+    { week: "W4", accuracy: 87 },
+  ],
+  Cencora: [
+    { week: "W1", accuracy: 62 },
+    { week: "W2", accuracy: 64 },
+    { week: "W3", accuracy: 65 },
+    { week: "W4", accuracy: 66 },
+  ],
+  "Morris & Dickson": [
+    { week: "W1", accuracy: 89 },
+    { week: "W2", accuracy: 90 },
+    { week: "W3", accuracy: 91 },
+    { week: "W4", accuracy: 92 },
+  ],
+};
+
+export const mockAccuracyOverTimeByDosage: Record<DosageType, { week: string; accuracy: number }[]> = {
+  Tablets: [
+    { week: "W1", accuracy: 88 },
+    { week: "W2", accuracy: 90 },
+    { week: "W3", accuracy: 91 },
+    { week: "W4", accuracy: 92 },
+  ],
+  Injectables: [
+    { week: "W1", accuracy: 82 },
+    { week: "W2", accuracy: 84 },
+    { week: "W3", accuracy: 85 },
+    { week: "W4", accuracy: 86 },
+  ],
+  Capsules: [
+    { week: "W1", accuracy: 86 },
+    { week: "W2", accuracy: 87 },
+    { week: "W3", accuracy: 88 },
+    { week: "W4", accuracy: 89 },
+  ],
+  Liquids: [
+    { week: "W1", accuracy: 79 },
+    { week: "W2", accuracy: 81 },
+    { week: "W3", accuracy: 82 },
+    { week: "W4", accuracy: 83 },
+  ],
+  Topicals: [
+    { week: "W1", accuracy: 90 },
+    { week: "W2", accuracy: 91 },
+    { week: "W3", accuracy: 91 },
+    { week: "W4", accuracy: 92 },
+  ],
+};
+
 export interface AuditEvent {
   id: string;
   applicationId: string;
@@ -77,10 +160,10 @@ export interface AuditEvent {
 }
 
 export const mockAuditEvents: AuditEvent[] = [
-  { id: "E1", applicationId: "APP-001", decisionType: "Auto Approved", modelVersion: "v2.3", ruleVersion: "R1:2.1", timestamp: "2026-02-27T10:30:05Z", stage: "extraction", details: "Fields extracted" },
-  { id: "E2", applicationId: "APP-001", decisionType: "Auto Approved", modelVersion: "v2.3", ruleVersion: "R1:2.1", timestamp: "2026-02-27T10:30:06Z", stage: "rule_execution", details: "No rules triggered" },
-  { id: "E3", applicationId: "APP-001", decisionType: "Auto Approved", modelVersion: "v2.3", ruleVersion: "-", timestamp: "2026-02-27T10:30:07Z", stage: "model_decision", details: "Confidence 94%" },
-  { id: "E4", applicationId: "APP-002", decisionType: "Review Required", modelVersion: "v2.3", ruleVersion: "R2:1.0", timestamp: "2026-02-27T10:25:10Z", stage: "human_override", details: "Assigned to reviewer" },
+  { id: "E1", applicationId: "NDC-001", decisionType: "Auto Approved", modelVersion: "v2.3", ruleVersion: "R1:2.1", timestamp: "2026-02-27T10:30:05Z", stage: "extraction", details: "Fields extracted" },
+  { id: "E2", applicationId: "NDC-001", decisionType: "Auto Approved", modelVersion: "v2.3", ruleVersion: "R1:2.1", timestamp: "2026-02-27T10:30:06Z", stage: "rule_execution", details: "No rules triggered" },
+  { id: "E3", applicationId: "NDC-001", decisionType: "Auto Approved", modelVersion: "v2.3", ruleVersion: "-", timestamp: "2026-02-27T10:30:07Z", stage: "model_decision", details: "Confidence 94%" },
+  { id: "E4", applicationId: "NDC-002", decisionType: "Review Required", modelVersion: "v2.3", ruleVersion: "R2:1.0", timestamp: "2026-02-27T10:25:10Z", stage: "human_override", details: "Assigned to reviewer" },
 ];
 
 // --- Extraction rules (field extraction, not business rules) ---

@@ -38,7 +38,7 @@ export default function AuditLogsPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div>
               <label className="text-xs font-medium text-[var(--muted)]">Application ID</label>
-              <Input placeholder="e.g. APP-001" value={appId} onChange={(e) => setAppId(e.target.value)} />
+              <Input placeholder="e.g. NDC-001" value={appId} onChange={(e) => setAppId(e.target.value)} />
             </div>
             <div>
               <label className="text-xs font-medium text-[var(--muted)]">Decision Type</label>

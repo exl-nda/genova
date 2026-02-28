@@ -31,6 +31,7 @@ import type { ExtractedField } from "@/data/mock";
 import { ArrowLeft, FileText, Check, X, Edit, MessageCircle, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from "recharts";
 
 const CONFIDENCE_THRESHOLD = 80;
 const timelineSteps = [
@@ -56,9 +57,11 @@ export default function ApplicationDetailPage() {
         name: string;
         description: string;
         prompt: string;
-        testOutput: unknown | null;
+        previousConfidence: number;
+        testOutput: { field: string; value: string; confidence: number;[key: string]: unknown } | null;
     } | null>(null);
     const [editModalTesting, setEditModalTesting] = useState(false);
+    const [testSimulateMode, setTestSimulateMode] = useState<"positive" | "negative">("positive");
     const [reprocessingFieldKey, setReprocessingFieldKey] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const editModalNameInputRef = useRef<HTMLInputElement>(null);
@@ -116,6 +119,7 @@ export default function ApplicationDetailPage() {
             name: rule.name,
             description: rule.description ?? "",
             prompt: rule.prompt,
+            previousConfidence: Number(f.confidence) || 0,
             testOutput: null,
         });
     };
@@ -139,6 +143,7 @@ export default function ApplicationDetailPage() {
     const handleEditModalVersionChange = (versionedId: string) => {
         const rule = getExtractionRule(versionedId);
         if (!rule || !editModal) return;
+        const currentField = fields.find((x) => x.field === editModal.fieldKey);
         setEditModal({
             ...editModal,
             ruleId: rule.id,
@@ -146,6 +151,7 @@ export default function ApplicationDetailPage() {
             name: rule.name,
             description: rule.description ?? "",
             prompt: rule.prompt,
+            previousConfidence: Number(currentField?.confidence ?? editModal.previousConfidence) || 0,
             testOutput: null,
         });
     };
@@ -154,12 +160,17 @@ export default function ApplicationDetailPage() {
         if (!editModal) return;
         setEditModalTesting(true);
         setError(null);
-        // Mock test: simulate extraction output as JSON
+        const prev = Number(editModal.previousConfidence) || 0;
+        const positive = testSimulateMode === "positive";
         setTimeout(() => {
+            const delta = 8 + Math.floor(Math.random() * 10);
+            const confidence = positive
+                ? Math.min(99, prev + delta)
+                : Math.max(0, prev - delta);
             const mockOutput = {
                 field: editModal.fieldKey,
                 value: "Extracted value (mock)",
-                confidence: 88,
+                confidence,
                 prompt_preview: editModal.prompt.slice(0, 80) + (editModal.prompt.length > 80 ? "…" : ""),
                 timestamp: new Date().toISOString(),
             };
@@ -538,40 +549,125 @@ export default function ApplicationDetailPage() {
                                         placeholder="e.g. Extract the applicant's full name from the document header."
                                     />
                                 </div>
-                                <div className="flex gap-2 pt-2">
-                                    <Button onClick={handleTestRule} disabled={editModalTesting}>
-                                        {editModalTesting ? "Testing…" : "Test"}
-                                    </Button>
-                                    <Button variant="outline" onClick={() => setEditModal(null)}>Cancel</Button>
+                                <div className="flex flex-wrap items-center gap-2 pt-2">
+                                    <div className="flex items-center gap-2">
+                                        <Button onClick={handleTestRule} disabled={editModalTesting}>
+                                            {editModalTesting ? "Testing…" : "Test"}
+                                        </Button>
+                                        <Button variant="outline" onClick={() => setEditModal(null)}>Cancel</Button>
+                                    </div>
+                                    <div className="flex items-center gap-2 ml-auto">
+                                        <label className="text-sm text-[var(--muted)] shrink-0">Simulate:</label>
+                                        <Select
+                                            value={testSimulateMode}
+                                            onChange={(e) => setTestSimulateMode(e.target.value as "positive" | "negative")}
+                                            className="w-36"
+                                            disabled={editModalTesting}
+                                        >
+                                            <option value="positive">Positive (improved)</option>
+                                            <option value="negative">Negative (regression)</option>
+                                        </Select>
+                                    </div>
                                 </div>
                             </div>
-                            {/* Right column: JSON viewer, Save */}
-                            <div className="flex flex-col min-h-0 min-w-0">
-                                <label className="block text-sm font-medium mb-1">Test output</label>
-                                <div className="flex-1 min-h-[200px] rounded-md border border-[var(--border)] bg-[#282c34] overflow-auto">
-                                    {editModal.testOutput != null ? (
-                                        <SyntaxHighlighter
-                                            language="json"
-                                            style={oneDark}
-                                            customStyle={{
-                                                margin: 0,
-                                                padding: "0.75rem 1rem",
-                                                fontSize: "0.75rem",
-                                                lineHeight: 1.5,
-                                                background: "transparent",
-                                                minHeight: "100%",
-                                            }}
-                                            codeTagProps={{ style: { fontFamily: "ui-monospace, monospace" } }}
-                                            showLineNumbers={false}
-                                            PreTag="div"
-                                        >
-                                            {JSON.stringify(editModal.testOutput, null, 2)}
-                                        </SyntaxHighlighter>
-                                    ) : (
-                                        <p className="text-sm text-gray-400 p-4">Run Test to see extraction output here.</p>
+                            {/* Right column: Confidence comparison, JSON viewer, Save */}
+                            <div className="flex flex-col min-h-0 min-w-0 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium mb-2">Confidence impact</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 p-4 text-center">
+                                            <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Before</p>
+                                            <p className="text-2xl font-bold mt-1 tabular-nums" style={{ color: "var(--foreground)" }}>
+                                                {Number(editModal.previousConfidence) || 0}%
+                                            </p>
+                                            <p className="text-xs text-[var(--muted)] mt-0.5">current extraction</p>
+                                        </div>
+                                        <div className={`rounded-lg border p-4 text-center ${editModal.testOutput != null
+                                            ? (Number(editModal.testOutput.confidence) || 0) >= (Number(editModal.previousConfidence) || 0)
+                                                ? "border-[var(--safe)] bg-[var(--safe)]/10"
+                                                : "border-red-500 bg-red-500/10"
+                                            : "border-[var(--border)] bg-[var(--sidebar)]/30"
+                                            }`}>
+                                            <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">After</p>
+                                            {editModal.testOutput != null ? (
+                                                (() => {
+                                                    const before = Number(editModal.previousConfidence) || 0;
+                                                    const after = Number(editModal.testOutput.confidence) || 0;
+                                                    const delta = after - before;
+                                                    const isImprovement = delta >= 0;
+                                                    return (
+                                                        <>
+                                                            <p className={`text-2xl font-bold mt-1 tabular-nums ${isImprovement ? "text-[var(--safe)]" : "text-red-500"}`}>
+                                                                {after}%
+                                                            </p>
+                                                            <p className="text-xs mt-0.5">
+                                                                <span className={isImprovement ? "text-[var(--safe)]" : "text-red-500"}>
+                                                                    {delta >= 0 ? "↑" : "↓"} {Math.abs(delta)} pts
+                                                                </span>
+                                                            </p>
+                                                        </>
+                                                    );
+                                                })()
+                                            ) : (
+                                                <p className="text-sm text-[var(--muted)] mt-2">Run Test</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {editModal.testOutput != null && (
+                                        (() => {
+                                            const beforeVal = Number(editModal.previousConfidence) || 0;
+                                            const afterVal = Number(editModal.testOutput.confidence) || 0;
+                                            const afterColor = afterVal >= beforeVal ? "var(--safe)" : "#ef4444";
+                                            return (
+                                                <div className="mt-3 h-[80px] w-full">
+                                                    <ResponsiveContainer width="100%" height="100%">
+                                                        <BarChart
+                                                            data={[
+                                                                { label: "Before", value: beforeVal, fill: "var(--muted)" },
+                                                                { label: "After", value: afterVal, fill: afterColor },
+                                                            ]}
+                                                            margin={{ top: 4, right: 8, left: 8, bottom: 4 }}
+                                                        >
+                                                            <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                                                            <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={24} />
+                                                            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                                                                <Cell fill="var(--muted)" />
+                                                                <Cell fill={afterColor} />
+                                                            </Bar>
+                                                        </BarChart>
+                                                    </ResponsiveContainer>
+                                                </div>
+                                            );
+                                        })()
                                     )}
                                 </div>
-                                <div className="pt-4 flex justify-end">
+                                <div className="flex-1 min-h-0 flex flex-col">
+                                    <label className="block text-sm font-medium mb-1">Test output</label>
+                                    <div className="flex-1 min-h-[180px] rounded-md border border-[var(--border)] bg-[#282c34] overflow-auto">
+                                        {editModal.testOutput != null ? (
+                                            <SyntaxHighlighter
+                                                language="json"
+                                                style={oneDark}
+                                                customStyle={{
+                                                    margin: 0,
+                                                    padding: "0.75rem 1rem",
+                                                    fontSize: "0.75rem",
+                                                    lineHeight: 1.5,
+                                                    background: "transparent",
+                                                    minHeight: "100%",
+                                                }}
+                                                codeTagProps={{ style: { fontFamily: "ui-monospace, monospace" } }}
+                                                showLineNumbers={false}
+                                                PreTag="div"
+                                            >
+                                                {JSON.stringify(editModal.testOutput, null, 2)}
+                                            </SyntaxHighlighter>
+                                        ) : (
+                                            <p className="text-sm text-gray-400 p-4">Run Test to see extraction output here.</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="pt-4 flex justify-end shrink-0">
                                     <Button
                                         onClick={saveEditRule}
                                         disabled={editModal.testOutput == null}

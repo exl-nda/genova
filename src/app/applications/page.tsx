@@ -120,6 +120,7 @@ function ApplicationsContent() {
                         <TableHeader>
                             <TableRow>
                                 <TableHead>NDC</TableHead>
+                                <TableHead>Supplier</TableHead>
                                 <TableHead>Confidence %</TableHead>
                                 <TableHead>Competency Level</TableHead>
                                 <TableHead>Decision Status</TableHead>
@@ -134,6 +135,7 @@ function ApplicationsContent() {
                                     className={app.decisionStatus === "auto_approved" ? "bg-emerald-50/50" : app.decisionStatus === "review_required" ? "bg-amber-50/50" : "bg-red-50/50"}
                                 >
                                     <TableCell className="font-medium">{app.id}</TableCell>
+                                    <TableCell>{app.supplier}</TableCell>
                                     <TableCell>{app.confidence}%</TableCell>
                                     <TableCell>{app.competencyLevel}</TableCell>
                                     <TableCell>

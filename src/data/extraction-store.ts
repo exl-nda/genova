@@ -313,6 +313,46 @@ export function setFieldDecision(applicationId: string, fieldKey: string, decisi
   fieldDecisions[applicationId][fieldKey] = decision;
 }
 
+// --- Rule performance (aggregate precision across applications) ---
+export interface RulePerformanceStat {
+  ruleBaseId: string;
+  ruleName: string;
+  /** Mean extraction confidence (0–100), used as precision proxy. */
+  precision: number;
+  /** Number of extractions (invocations) across all applications. */
+  invocations: number;
+}
+
+export function getRulePerformanceStats(): RulePerformanceStat[] {
+  const ruleById = Object.fromEntries(extractionRules.map((r) => [r.id, r]));
+  const byBase: Record<string, { sumConf: number; count: number; name: string }> = {};
+  for (const app of mockApplications) {
+    const fields = getExtractedFieldsForApplication(app.id);
+    for (const f of fields) {
+      const ruleId = f.ruleId;
+      const rule = ruleId ? ruleById[ruleId] : undefined;
+      const baseId = rule?.ruleBaseId ?? "unknown";
+      if (!byBase[baseId]) byBase[baseId] = { sumConf: 0, count: 0, name: rule?.name ?? f.ruleName ?? baseId };
+      byBase[baseId].sumConf += f.confidence;
+      byBase[baseId].count += 1;
+    }
+  }
+  return extractionRules
+    .filter((r, i, arr) => arr.findIndex((x) => x.ruleBaseId === r.ruleBaseId) === i)
+    .map((r) => {
+      const agg = byBase[r.ruleBaseId] ?? { sumConf: 0, count: 0, name: r.name };
+      const precision = agg.count ? Math.round((agg.sumConf / agg.count) * 10) / 10 : 0;
+      return {
+        ruleBaseId: r.ruleBaseId,
+        ruleName: agg.name,
+        precision,
+        invocations: agg.count,
+      };
+    })
+    .filter((s) => s.invocations > 0)
+    .sort((a, b) => b.precision - a.precision);
+}
+
 // --- Reprocess: mock re-extract value and confidence for one field ---
 export function reprocessField(applicationId: string, fieldKey: string): ExtractedField {
   const mapping = getMapping(applicationId, fieldKey);
