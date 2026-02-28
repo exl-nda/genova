@@ -14,10 +14,10 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
+    { href: "/", label: "Dashboard", icon: BarChart3 },
     { href: "/applications", label: "HDA Forms", icon: FileStack },
     { href: "/rules", label: "Rules Management", icon: BookOpen },
     { href: "/competency", label: "Competency Model", icon: Brain },
-    { href: "/metrics", label: "Metrics", icon: BarChart3 },
 ];
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
