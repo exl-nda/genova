@@ -2,11 +2,11 @@ export type DecisionStatus = "auto_approved" | "review_required" | "rejected";
 
 /** Real-world suppliers used for HDA forms; kept in a const for future supplier-level stats. */
 export const SUPPLIERS = [
-  "McKesson",
-  "AmerisourceBergen",
-  "Cardinal Health",
-  "Cencora",
-  "Morris & Dickson",
+  "Dr. Reddy's",
+  "Cipla",
+  "Sun Pharma",
+  "Lupin",
+  "Zydus",
 ] as const;
 export type Supplier = (typeof SUPPLIERS)[number];
 
@@ -30,11 +30,11 @@ export interface Application {
 }
 
 export const mockApplications: Application[] = [
-  { id: "NDC-001", applicantName: "Jane Smith", supplier: "McKesson", dosageType: "Tablets", confidence: 94, riskScore: 12, competencyLevel: "Highly Intelligent", ruleFlagsCount: 0, decisionStatus: "auto_approved", source: "Upload", timestamp: "2026-02-27T10:30:00Z" },
-  { id: "NDC-002", applicantName: "John Doe", supplier: "AmerisourceBergen", dosageType: "Injectables", confidence: 78, riskScore: 35, competencyLevel: "Needs Training", ruleFlagsCount: 2, decisionStatus: "review_required", source: "API", timestamp: "2026-02-27T10:25:00Z" },
-  { id: "NDC-003", applicantName: "Alice Brown", supplier: "Cardinal Health", dosageType: "Capsules", confidence: 88, riskScore: 22, competencyLevel: "Intelligent", ruleFlagsCount: 1, decisionStatus: "review_required", source: "Upload", timestamp: "2026-02-27T10:20:00Z" },
-  { id: "NDC-004", applicantName: "Bob Wilson", supplier: "Cencora", dosageType: "Liquids", confidence: 65, riskScore: 72, competencyLevel: "Needs Training", ruleFlagsCount: 4, decisionStatus: "rejected", source: "Upload", timestamp: "2026-02-27T10:15:00Z" },
-  { id: "NDC-005", applicantName: "Carol Lee", supplier: "Morris & Dickson", dosageType: "Topicals", confidence: 92, riskScore: 8, competencyLevel: "Highly Intelligent", ruleFlagsCount: 0, decisionStatus: "auto_approved", source: "API", timestamp: "2026-02-27T10:10:00Z" },
+  { id: "NDC-001", applicantName: "Jane Smith", supplier: "Dr. Reddy's", dosageType: "Tablets", confidence: 94, riskScore: 12, competencyLevel: "Highly Intelligent", ruleFlagsCount: 0, decisionStatus: "auto_approved", source: "Upload", timestamp: "2026-02-27T10:30:00Z" },
+  { id: "NDC-002", applicantName: "John Doe", supplier: "Cipla", dosageType: "Injectables", confidence: 78, riskScore: 35, competencyLevel: "Needs Training", ruleFlagsCount: 2, decisionStatus: "review_required", source: "API", timestamp: "2026-02-27T10:25:00Z" },
+  { id: "NDC-003", applicantName: "Alice Brown", supplier: "Sun Pharma", dosageType: "Capsules", confidence: 88, riskScore: 22, competencyLevel: "Intelligent", ruleFlagsCount: 1, decisionStatus: "review_required", source: "Upload", timestamp: "2026-02-27T10:20:00Z" },
+  { id: "NDC-004", applicantName: "Bob Wilson", supplier: "Lupin", dosageType: "Liquids", confidence: 65, riskScore: 72, competencyLevel: "Needs Training", ruleFlagsCount: 4, decisionStatus: "rejected", source: "Upload", timestamp: "2026-02-27T10:15:00Z" },
+  { id: "NDC-005", applicantName: "Carol Lee", supplier: "Zydus", dosageType: "Topicals", confidence: 92, riskScore: 8, competencyLevel: "Highly Intelligent", ruleFlagsCount: 0, decisionStatus: "auto_approved", source: "API", timestamp: "2026-02-27T10:10:00Z" },
 ];
 
 export interface CompetencyBand {
@@ -83,31 +83,31 @@ export const defaultCompetencyBandsByDosage: Record<DosageType, CompetencyBand[]
 export type MetricsDimension = "supplier" | "dosageType";
 
 export const mockAccuracyOverTimeBySupplier: Record<Supplier, { week: string; accuracy: number }[]> = {
-  McKesson: [
+  "Dr. Reddy's": [
     { week: "W1", accuracy: 91 },
     { week: "W2", accuracy: 93 },
     { week: "W3", accuracy: 92 },
     { week: "W4", accuracy: 94 },
   ],
-  AmerisourceBergen: [
+  Cipla: [
     { week: "W1", accuracy: 76 },
     { week: "W2", accuracy: 78 },
     { week: "W3", accuracy: 79 },
     { week: "W4", accuracy: 80 },
   ],
-  "Cardinal Health": [
+  "Sun Pharma": [
     { week: "W1", accuracy: 85 },
     { week: "W2", accuracy: 86 },
     { week: "W3", accuracy: 88 },
     { week: "W4", accuracy: 87 },
   ],
-  Cencora: [
+  Lupin: [
     { week: "W1", accuracy: 62 },
     { week: "W2", accuracy: 64 },
     { week: "W3", accuracy: 65 },
     { week: "W4", accuracy: 66 },
   ],
-  "Morris & Dickson": [
+  Zydus: [
     { week: "W1", accuracy: 89 },
     { week: "W2", accuracy: 90 },
     { week: "W3", accuracy: 91 },
@@ -147,6 +147,50 @@ export const mockAccuracyOverTimeByDosage: Record<DosageType, { week: string; ac
     { week: "W4", accuracy: 92 },
   ],
 };
+
+// --- Metrics mock data (throughput, funnel, queue, rejection, trends) ---
+
+/** Forms processed per week for throughput. */
+export const mockWeeklyVolume: { week: string; count: number }[] = [
+  { week: "W1", count: 42 },
+  { week: "W2", count: 48 },
+  { week: "W3", count: 51 },
+  { week: "W4", count: 55 },
+];
+
+/** Average time from submission to decision (minutes). */
+export const MOCK_AVG_TIME_TO_DECISION_MIN = 4.2;
+
+/** Review queue: backlog and SLA. */
+export const mockReviewQueueStats = {
+  backlogCount: 7,
+  avgHoursInQueue: 2.4,
+  slaBreachCount: 1,
+  slaThresholdHours: 4,
+};
+
+/** Rejection reason code per application (for rejected only). */
+export const mockRejectionReasons: Record<string, string> = {
+  "NDC-004": "High risk score; multiple rule flags",
+};
+
+/** Confidence distribution over time: share of extractions in each band. */
+export const mockConfidenceDistributionOverTime: { week: string; high: number; mid: number; low: number }[] = [
+  { week: "W1", high: 62, mid: 24, low: 14 },
+  { week: "W2", high: 65, mid: 23, low: 12 },
+  { week: "W3", high: 66, mid: 22, low: 12 },
+  { week: "W4", high: 68, mid: 21, low: 11 },
+];
+
+/** Week-over-week change for key metrics (current vs previous week). */
+export const mockWoWMetrics = {
+  approvalRate: { current: 42, previous: 38, label: "Auto-approval rate (%)" },
+  accuracy: { current: 89, previous: 87, label: "Accuracy (%)" },
+  avgConfidence: { current: 83.4, previous: 81.2, label: "Avg confidence (%)" },
+};
+
+/** Applications that have at least one audit event (for audit readiness). */
+export const mockApplicationsWithAuditTrace = new Set(["NDC-001", "NDC-002"]);
 
 export interface AuditEvent {
   id: string;

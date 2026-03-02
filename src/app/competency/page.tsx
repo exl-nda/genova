@@ -65,7 +65,7 @@ export default function CompetencyModelPage() {
                     >
                         Model
                     </button>
-                    <button
+                    {/* <button
                         type="button"
                         onClick={() => setActiveTab("dosage")}
                         className={`pb-3 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === "dosage"
@@ -74,7 +74,7 @@ export default function CompetencyModelPage() {
                             }`}
                     >
                         Dosage
-                    </button>
+                    </button> */}
                 </nav>
             </div>
 
