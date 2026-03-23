@@ -4,8 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
     FileStack,
-    BookOpen,
-    Brain,
     BarChart3,
     PanelLeftClose,
     PanelLeft,
@@ -15,9 +13,7 @@ import { Button } from "@/components/ui/button";
 
 const navItems = [
     { href: "/", label: "Dashboard", icon: BarChart3 },
-    { href: "/applications", label: "HDA Forms", icon: FileStack },
-    { href: "/rules", label: "Rules Management", icon: BookOpen },
-    { href: "/competency", label: "Competency Model", icon: Brain },
+    { href: "/applications", label: "Emails", icon: FileStack },
 ];
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {

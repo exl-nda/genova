@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useMemo, Suspense } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
     Table,
@@ -12,141 +12,171 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { mockApplications, type Application, type DecisionStatus } from "@/data/mock";
-import { Eye, UserPlus, RotateCcw } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import type { Email } from "@/data/mock";
+import { getEmails, getEmailById, processEmail, setEmailReviewed, subscribe } from "@/data/emails-store";
+import { Eye, Play, RotateCcw, FileCheck, Send } from "lucide-react";
 
-function statusVariant(s: DecisionStatus): "safe" | "review" | "risk" {
-    if (s === "auto_approved") return "safe";
-    if (s === "review_required") return "review";
+function statusVariant(status: Email["status"]) {
+    if (status === "reviewed") return "safe";
+    if (status === "processed") return "review";
     return "risk";
 }
 
-function statusLabel(s: DecisionStatus): string {
-    if (s === "auto_approved") return "Auto Approved";
-    if (s === "review_required") return "Review Required";
-    return "Rejected";
+function statusLabel(status: Email["status"]) {
+    return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function ApplicationsContent() {
+export default function ApplicationsPage() {
     const router = useRouter();
-    const searchParams = useSearchParams();
-    const statusFilter = searchParams.get("status") ?? "all";
-    const [confidenceMin, setConfidenceMin] = useState(0);
-    const [confidenceMax, setConfidenceMax] = useState(100);
-    const [riskMin, setRiskMin] = useState(0);
-    const [riskMax, setRiskMax] = useState(100);
-    const [dateFrom, setDateFrom] = useState("");
-    const [dateTo, setDateTo] = useState("");
-    const [modelVersion, setModelVersion] = useState("all");
+    const [emails, setEmails] = useState<Email[]>(getEmails());
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [processingId, setProcessingId] = useState<string | null>(null);
 
-    const filtered = useMemo(() => {
-        return mockApplications.filter((app) => {
-            if (statusFilter !== "all" && app.decisionStatus !== statusFilter) return false;
-            if (app.confidence < confidenceMin || app.confidence > confidenceMax) return false;
-            if (app.riskScore < riskMin || app.riskScore > riskMax) return false;
-            if (modelVersion !== "all" && app.source !== modelVersion) return false;
-            return true;
+    useEffect(() => {
+        const unsub = subscribe(() => setEmails(getEmails()));
+        return unsub;
+    }, []);
+
+    const reviewedEmails = emails.filter((e) => e.reviewed);
+    const selectedReviewed = reviewedEmails.filter((e) => selectedIds.has(e.id));
+
+    const toggleSelect = (id: string) => {
+        const email = getEmailById(id);
+        if (!email?.reviewed) return;
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
         });
-    }, [statusFilter, confidenceMin, confidenceMax, riskMin, riskMax, modelVersion]);
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedReviewed.length === reviewedEmails.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(reviewedEmails.map((e) => e.id)));
+        }
+    };
+
+    const handleProcess = (id: string) => {
+        setProcessingId(id);
+        processEmail(id);
+        setProcessingId(null);
+    };
+
+    const handleReview = (id: string) => {
+        setEmailReviewed(id);
+        router.push(`/applications/${id}`);
+    };
+
+    const handlePushToSAP = () => {
+        if (selectedReviewed.length === 0) return;
+        alert(`Push to SAP: ${selectedReviewed.length} email(s) selected. (Simulated.)`);
+        setSelectedIds(new Set());
+    };
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-2xl font-semibold tracking-tight">HDA Forms</h1>
-                <p className="text-[var(--muted)] text-sm">Browse and filter processed HDA Forms</p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold tracking-tight">Emails</h1>
+                    <p className="text-[var(--muted)] text-sm">Process and review emails, then push to SAP</p>
+                </div>
+                <Button
+                    variant="default"
+                    disabled={selectedReviewed.length === 0}
+                    onClick={handlePushToSAP}
+                    title={selectedReviewed.length === 0 ? "Select reviewed emails to push" : undefined}
+                >
+                    <Send className="h-4 w-4 mr-2" />
+                    Push to SAP
+                </Button>
             </div>
-
-            <Card>
-                <CardHeader>
-                    <CardTitle>Filters</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-                        <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Status</label>
-                            <Select
-                                value={statusFilter}
-                                onChange={(e) => router.push(e.target.value === "all" ? "/applications" : `/applications?status=${e.target.value}`)}
-                            >
-                                <option value="all">All</option>
-                                <option value="auto_approved">Auto Approved</option>
-                                <option value="review_required">Review Required</option>
-                                <option value="rejected">Rejected</option>
-                            </Select>
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Confidence %</label>
-                            <div className="flex gap-2 items-center">
-                                <Input type="number" min={0} max={100} value={confidenceMin} onChange={(e) => setConfidenceMin(Number(e.target.value) || 0)} className="w-20" />
-                                <span className="text-[var(--muted)]">–</span>
-                                <Input type="number" min={0} max={100} value={confidenceMax} onChange={(e) => setConfidenceMax(Number(e.target.value) || 100)} className="w-20" />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Risk Score</label>
-                            <div className="flex gap-2 items-center">
-                                <Input type="number" min={0} max={100} value={riskMin} onChange={(e) => setRiskMin(Number(e.target.value) || 0)} className="w-20" />
-                                <span className="text-[var(--muted)]">–</span>
-                                <Input type="number" min={0} max={100} value={riskMax} onChange={(e) => setRiskMax(Number(e.target.value) || 100)} className="w-20" />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Date From</label>
-                            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Date To</label>
-                            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Model Version</label>
-                            <Select value={modelVersion} onChange={(e) => setModelVersion(e.target.value)}>
-                                <option value="all">All</option>
-                                <option value="Upload">Upload</option>
-                                <option value="API">API</option>
-                            </Select>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
 
             <Card>
                 <CardContent className="p-0">
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>NDC</TableHead>
-                                <TableHead>Supplier</TableHead>
-                                <TableHead>Confidence %</TableHead>
-                                <TableHead>Competency Level</TableHead>
-                                <TableHead>Decision Status</TableHead>
+                                <TableHead className="w-10">
+                                    {reviewedEmails.length > 0 && (
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedReviewed.length === reviewedEmails.length}
+                                            onChange={toggleSelectAll}
+                                            aria-label="Select all reviewed"
+                                        />
+                                    )}
+                                </TableHead>
+                                <TableHead>Subject</TableHead>
+                                <TableHead>Sender</TableHead>
                                 <TableHead>Timestamp</TableHead>
-                                <TableHead className="w-[140px]">Actions</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead className="w-[180px]">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {filtered.map((app) => (
-                                <TableRow
-                                    key={app.id}
-                                    className={app.decisionStatus === "auto_approved" ? "bg-emerald-50/50" : app.decisionStatus === "review_required" ? "bg-amber-50/50" : "bg-red-50/50"}
-                                >
-                                    <TableCell className="font-medium">{app.id}</TableCell>
-                                    <TableCell>{app.supplier}</TableCell>
-                                    <TableCell>{app.confidence}%</TableCell>
-                                    <TableCell>{app.competencyLevel}</TableCell>
+                            {emails.map((email) => (
+                                <TableRow key={email.id}>
                                     <TableCell>
-                                        <Badge variant={statusVariant(app.decisionStatus)}>{statusLabel(app.decisionStatus)}</Badge>
+                                        {email.reviewed && (
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedIds.has(email.id)}
+                                                onChange={() => toggleSelect(email.id)}
+                                                aria-label={`Select ${email.subject}`}
+                                            />
+                                        )}
                                     </TableCell>
-                                    <TableCell>{new Date(app.timestamp).toLocaleString()}</TableCell>
+                                    <TableCell className="font-medium">{email.subject}</TableCell>
+                                    <TableCell>{email.sender}</TableCell>
+                                    <TableCell>{new Date(email.timestamp).toLocaleString()}</TableCell>
+                                    <TableCell>
+                                        <Badge variant={statusVariant(email.status)}>{statusLabel(email.status)}</Badge>
+                                    </TableCell>
                                     <TableCell>
                                         <div className="flex gap-1">
-                                            <Link href={`/applications/${app.id}`} className={buttonVariants({ variant: "ghost", size: "icon" })} title="View Details"><Eye className="h-4 w-4" /></Link>
-                                            <Button variant="ghost" size="icon" title="Assign Reviewer"><UserPlus className="h-4 w-4" /></Button>
-                                            <Button variant="ghost" size="icon" title="Reprocess"><RotateCcw className="h-4 w-4" /></Button>
+                                            <Link
+                                                href={`/applications/${email.id}`}
+                                                className={buttonVariants({ variant: "ghost", size: "icon" })}
+                                                title="View details"
+                                            >
+                                                <Eye className="h-4 w-4" />
+                                            </Link>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => handleProcess(email.id)}
+                                                disabled={processingId === email.id}
+                                                title={email.processed ? "Reprocess" : "Process"}
+                                            >
+                                                {processingId === email.id ? (
+                                                    "…"
+                                                ) : email.processed ? (
+                                                    <>
+                                                        <RotateCcw className="h-4 w-4 mr-1" />
+                                                        Reprocess
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Play className="h-4 w-4 mr-1" />
+                                                        Process
+                                                    </>
+                                                )}
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                disabled={!email.processed}
+                                                onClick={() => handleReview(email.id)}
+                                                title={email.processed ? "Review" : "Process first to enable Review"}
+                                            >
+                                                <FileCheck className="h-4 w-4 mr-1" />
+                                                Review
+                                            </Button>
                                         </div>
                                     </TableCell>
                                 </TableRow>
@@ -156,13 +186,5 @@ function ApplicationsContent() {
                 </CardContent>
             </Card>
         </div>
-    );
-}
-
-export default function ApplicationsPage() {
-    return (
-        <Suspense fallback={<div className="p-6">Loading...</div>}>
-            <ApplicationsContent />
-        </Suspense>
     );
 }

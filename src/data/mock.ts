@@ -37,6 +37,51 @@ export const mockApplications: Application[] = [
   { id: "NDC-005", applicantName: "Carol Lee", supplier: "Zydus", dosageType: "Topicals", confidence: 92, riskScore: 8, competencyLevel: "Highly Intelligent", ruleFlagsCount: 0, decisionStatus: "auto_approved", source: "API", timestamp: "2026-02-27T10:10:00Z" },
 ];
 
+// --- Emails (use case: email list with Process / Review / Push to SAP) ---
+export type EmailStatus = "pending" | "processed" | "reviewed";
+
+export interface EmailAttachment {
+  id: string;
+  name: string;
+  /** For preview: placeholder type; real app would have URL or blob */
+  type: string;
+}
+
+export interface Email {
+  id: string;
+  subject: string;
+  sender: string;
+  timestamp: string;
+  status: EmailStatus;
+  /** After "Process" is run (IDP simulation) */
+  processed: boolean;
+  /** User has opened Review; enables Push to SAP */
+  reviewed: boolean;
+  /** Digitized body as JSON (populated after process) */
+  bodyJson?: Record<string, unknown>;
+  attachments: EmailAttachment[];
+}
+
+export const mockEmails: Email[] = [
+  { id: "email-1", subject: "Contract renewal Q1 2026", sender: "vendor@acme.com", timestamp: "2026-03-01T09:00:00Z", status: "pending", processed: false, reviewed: false, attachments: [{ id: "att-1", name: "contract.pdf", type: "application/pdf" }, { id: "att-2", name: "terms.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }] },
+  { id: "email-2", subject: "NDC pricing update", sender: "pricing@pharma.com", timestamp: "2026-03-01T10:15:00Z", status: "processed", processed: true, reviewed: false, bodyJson: { from: "pricing@pharma.com", subject: "NDC pricing update", paragraphs: ["Please find attached the updated NDC list and pricing."] }, attachments: [{ id: "att-3", name: "ndc_list.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }] },
+  { id: "email-3", subject: "Customer DEA verification", sender: "compliance@dist.com", timestamp: "2026-03-01T11:30:00Z", status: "reviewed", processed: true, reviewed: true, bodyJson: { from: "compliance@dist.com", subject: "Customer DEA verification", paragraphs: ["Attached are the DEA and HIN verification documents."] }, attachments: [] },
+  { id: "email-4", subject: "Valid from/to dates confirmation", sender: "orders@supplier.com", timestamp: "2026-02-28T14:00:00Z", status: "pending", processed: false, reviewed: false, attachments: [{ id: "att-4", name: "dates.pdf", type: "application/pdf" }] },
+  { id: "email-5", subject: "HIN and contract validity", sender: "support@partner.com", timestamp: "2026-02-28T16:45:00Z", status: "processed", processed: true, reviewed: false, bodyJson: { from: "support@partner.com", subject: "HIN and contract validity", paragraphs: [] }, attachments: [{ id: "att-5", name: "hin_form.pdf", type: "application/pdf" }] },
+];
+
+/** Extracted fields shown for emails (detail right column). */
+export const EMAIL_EXTRACTED_FIELD_KEYS = [
+  "Contract Valid from",
+  "Contract Valid to",
+  "NDC",
+  "price",
+  "Customer DEA",
+  "HIN",
+  "Customer Valid from date",
+  "Customer valid to date",
+] as const;
+
 export interface CompetencyBand {
   accuracyMin: number;
   accuracyMax: number;
@@ -355,13 +400,24 @@ export const mockExtractedFields: ExtractedField[] = [
   { field: "SVC LVL Catgy", value: "G-Generic Item", confidence: 92, editable: false, ruleId: "ER12-v1.0", ruleName: "SVC LVL Catgy", ruleVersion: "1.0" },
 ];
 
-// Per-application extracted fields (keyed by applicationId). Seeded from mockExtractedFields + default mappings.
+/** Template for email extracted fields (detail right column). */
+export const mockEmailExtractedFields: ExtractedField[] = [
+  { field: "Contract Valid from", value: "2026-01-01", confidence: 92, editable: true },
+  { field: "Contract Valid to", value: "2027-12-31", confidence: 88, editable: true },
+  { field: "NDC", value: "12345-678-90", confidence: 95, editable: false },
+  { field: "price", value: "42.50", confidence: 91, editable: true },
+  { field: "Customer DEA", value: "AB1234567", confidence: 89, editable: false },
+  { field: "HIN", value: "HIN987654", confidence: 87, editable: false },
+  { field: "Customer Valid from date", value: "2026-02-01", confidence: 90, editable: true },
+  { field: "Customer valid to date", value: "2027-01-31", confidence: 85, editable: true },
+];
+
+// Per-application extracted fields (keyed by applicationId). Seeded from mockExtractedFields + default mappings. Emails use mockEmailExtractedFields.
 export function buildInitialExtractedFieldsByApp(): Record<string, ExtractedField[]> {
   const byApp: Record<string, ExtractedField[]> = {};
-  const appIds = mockApplications.map((a) => a.id);
   const ruleById = Object.fromEntries(mockExtractionRules.map((r) => [r.id, r]));
-  for (const appId of appIds) {
-    byApp[appId] = mockExtractedFields.map((f) => {
+  for (const app of mockApplications) {
+    byApp[app.id] = mockExtractedFields.map((f) => {
       const ruleId = f.ruleId ?? defaultFieldRuleIds[f.field];
       const rule = ruleId ? ruleById[ruleId] : undefined;
       return {
@@ -371,6 +427,9 @@ export function buildInitialExtractedFieldsByApp(): Record<string, ExtractedFiel
         ruleVersion: rule?.version ?? f.ruleVersion,
       };
     });
+  }
+  for (const email of mockEmails) {
+    byApp[email.id] = mockEmailExtractedFields.map((f) => ({ ...f }));
   }
   return byApp;
 }

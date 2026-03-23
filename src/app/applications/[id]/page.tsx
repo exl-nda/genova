@@ -1,8 +1,7 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
 import {
     Table,
@@ -15,182 +14,77 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { mockApplications } from "@/data/mock";
+import { getEmailById, subscribe } from "@/data/emails-store";
 import {
     getExtractedFieldsForApplication,
-    getExtractionRule,
-    listVersionsForRule,
-    editRuleFromField,
-    reprocessField,
     getFieldDecision,
     setFieldDecision,
 } from "@/data/extraction-store";
 import type { ExtractedField } from "@/data/mock";
-import { ArrowLeft, FileText, Check, X, Edit, MessageCircle, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import { EMAIL_EXTRACTED_FIELD_KEYS } from "@/data/mock";
+import { ArrowLeft, FileText, Paperclip, Check, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from "recharts";
 
 const CONFIDENCE_THRESHOLD = 80;
-const timelineSteps = [
-    { stage: "Extraction", time: "10:25:01", status: "completed" },
-    { stage: "Rule Execution", time: "10:25:02", status: "completed" },
-    { stage: "Model Decision", time: "10:25:03", status: "completed" },
-    { stage: "Human Override", time: "—", status: "pending" },
-];
 
-export default function ApplicationDetailPage() {
+export default function EmailDetailPage() {
     const params = useParams();
     const id = params.id as string;
-    const [confidenceOverlay, setConfidenceOverlay] = useState(true);
-    const [previewTab, setPreviewTab] = useState<"document" | "json">("document");
-    const [expandedFieldKey, setExpandedFieldKey] = useState<string | null>(null);
-    const [fields, setFields] = useState<ExtractedField[]>(() => getExtractedFieldsForApplication(id));
-    const [editModal, setEditModal] = useState<{
-        fieldKey: string;
-        ruleId: string;
-        ruleBaseId: string;
-        ruleName: string;
-        ruleVersion: string;
-        name: string;
-        description: string;
-        prompt: string;
-        previousConfidence: number;
-        testOutput: { field: string; value: string; confidence: number;[key: string]: unknown } | null;
-    } | null>(null);
-    const [editModalTesting, setEditModalTesting] = useState(false);
-    const [testSimulateMode, setTestSimulateMode] = useState<"positive" | "negative">("positive");
-    const [reprocessingFieldKey, setReprocessingFieldKey] = useState<string | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const editModalNameInputRef = useRef<HTMLInputElement>(null);
+    const [email, setEmail] = useState(() => getEmailById(id));
+    const [previewTab, setPreviewTab] = useState<"json" | "attachments">("json");
+    const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(() => {
+        const e = getEmailById(id);
+        const atts = e?.attachments ?? [];
+        return atts[0]?.id ?? null;
+    });
+    const [fields, setFields] = useState<ExtractedField[]>(() =>
+        getExtractedFieldsForApplication(id).filter((f) =>
+            (EMAIL_EXTRACTED_FIELD_KEYS as readonly string[]).includes(f.field)
+        )
+    );
 
     useEffect(() => {
-        if (editModal) {
-            setError(null);
-            editModalNameInputRef.current?.focus();
-        }
-    }, [editModal]);
-
-    const refreshFields = useCallback(() => {
-        setFields([...getExtractedFieldsForApplication(id)]);
+        const e = getEmailById(id);
+        setEmail(e ?? undefined);
+        setFields(
+            getExtractedFieldsForApplication(id).filter((f) =>
+                (EMAIL_EXTRACTED_FIELD_KEYS as readonly string[]).includes(f.field)
+            )
+        );
+        const atts = e?.attachments ?? [];
+        setSelectedAttachmentId(atts[0]?.id ?? null);
     }, [id]);
 
-    const app = mockApplications.find((a) => a.id === id);
-    if (!app) {
+    useEffect(() => {
+        const unsub = subscribe(() => setEmail(getEmailById(id)));
+        return unsub;
+    }, [id]);
+
+    if (!email) {
         return (
             <div className="space-y-6">
-                <p className="text-[var(--muted)]">Application not found.</p>
-                <Link href="/applications" className={buttonVariants({ variant: "outline" })}>Back to Applications</Link>
+                <p className="text-[var(--muted)]">Email not found.</p>
+                <Link href="/applications" className={buttonVariants({ variant: "outline" })}>
+                    Back to Emails
+                </Link>
             </div>
         );
     }
 
     const digitizedJson = {
-        application: {
-            id: app.id,
-            applicantName: app.applicantName,
-            decisionStatus: app.decisionStatus,
-            timestamp: app.timestamp,
-        },
-        digitized_at: new Date().toISOString(),
-        extracted_fields: fields.map((f) => ({
-            field: f.field,
-            value: f.value,
-            confidence: f.confidence,
-            rule: {
-                id: f.ruleId ?? "—",
-                name: f.ruleName ?? "—",
-                version: f.ruleVersion ?? "—",
-            },
-        })),
+        email_id: email.id,
+        subject: email.subject,
+        sender: email.sender,
+        timestamp: email.timestamp,
+        body: email.bodyJson ?? { message: "Not yet digitized. Run Process on the list." },
+        digitized_at: email.processed ? new Date().toISOString() : null,
     };
 
-    const openEditRule = (f: ExtractedField) => {
-        const rule = f.ruleId ? getExtractionRule(f.ruleId) : undefined;
-        if (!f.ruleId || !rule) return;
-        setEditModal({
-            fieldKey: f.field,
-            ruleId: rule.id,
-            ruleBaseId: rule.ruleBaseId,
-            ruleName: rule.name,
-            ruleVersion: rule.version,
-            name: rule.name,
-            description: rule.description ?? "",
-            prompt: rule.prompt,
-            previousConfidence: Number(f.confidence) || 0,
-            testOutput: null,
-        });
-    };
-
-    const saveEditRule = () => {
-        if (!editModal) return;
-        setError(null);
-        try {
-            editRuleFromField(id, editModal.fieldKey, editModal.ruleId, {
-                name: editModal.name,
-                description: editModal.description || undefined,
-                prompt: editModal.prompt,
-            });
-            setEditModal(null);
-            refreshFields();
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to save rule");
-        }
-    };
-
-    const handleEditModalVersionChange = (versionedId: string) => {
-        const rule = getExtractionRule(versionedId);
-        if (!rule || !editModal) return;
-        const currentField = fields.find((x) => x.field === editModal.fieldKey);
-        setEditModal({
-            ...editModal,
-            ruleId: rule.id,
-            ruleVersion: rule.version,
-            name: rule.name,
-            description: rule.description ?? "",
-            prompt: rule.prompt,
-            previousConfidence: Number(currentField?.confidence ?? editModal.previousConfidence) || 0,
-            testOutput: null,
-        });
-    };
-
-    const handleTestRule = () => {
-        if (!editModal) return;
-        setEditModalTesting(true);
-        setError(null);
-        const prev = Number(editModal.previousConfidence) || 0;
-        const positive = testSimulateMode === "positive";
-        setTimeout(() => {
-            const delta = 8 + Math.floor(Math.random() * 10);
-            const confidence = positive
-                ? Math.min(99, prev + delta)
-                : Math.max(0, prev - delta);
-            const mockOutput = {
-                field: editModal.fieldKey,
-                value: "Extracted value (mock)",
-                confidence,
-                prompt_preview: editModal.prompt.slice(0, 80) + (editModal.prompt.length > 80 ? "…" : ""),
-                timestamp: new Date().toISOString(),
-            };
-            setEditModal((m) => m ? { ...m, testOutput: mockOutput } : null);
-            setEditModalTesting(false);
-        }, 600);
-    };
-
-    const handleReprocess = (fieldKey: string) => {
-        setError(null);
-        setReprocessingFieldKey(fieldKey);
-        try {
-            reprocessField(id, fieldKey);
-            refreshFields();
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to reprocess field");
-        } finally {
-            setReprocessingFieldKey(null);
-        }
-    };
+    const attachments = email.attachments ?? [];
+    const selectedAttachment =
+        attachments.find((a) => a.id === selectedAttachmentId) ?? attachments[0] ?? null;
 
     const handleFieldApprove = (fieldKey: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -204,75 +98,66 @@ export default function ApplicationDetailPage() {
         setFields((prev) => [...prev]);
     };
 
+    const avgConfidence =
+        fields.length > 0
+            ? Math.round(
+                  (fields.reduce((acc, f) => acc + f.confidence, 0) / fields.length) * 10
+              ) / 10
+            : 0;
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <Link href="/applications" className={buttonVariants({ variant: "ghost", size: "icon" })}><ArrowLeft className="h-5 w-5" /></Link>
+                    <Link
+                        href="/applications"
+                        className={buttonVariants({ variant: "ghost", size: "icon" })}
+                    >
+                        <ArrowLeft className="h-5 w-5" />
+                    </Link>
                     <div>
-                        <h1 className="text-2xl font-semibold tracking-tight">{app.id}</h1>
-                        <p className="text-[var(--muted)] text-sm">{app.applicantName} · {app.decisionStatus.replace("_", " ")}</p>
+                        <h1 className="text-2xl font-semibold tracking-tight">{email.subject}</h1>
+                        <p className="text-[var(--muted)] text-sm">
+                            {email.sender} · {new Date(email.timestamp).toLocaleString()}
+                        </p>
                     </div>
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="default"><Check className="h-4 w-4 mr-2" />Approve</Button>
-                    <Button variant="destructive"><X className="h-4 w-4 mr-2" />Reject</Button>
-                    <Button variant="outline"><Edit className="h-4 w-4 mr-2" />Override Decision</Button>
-                    <Button variant="secondary"><MessageCircle className="h-4 w-4 mr-2" />Request Clarification</Button>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Left: Document viewer */}
+                {/* Left: Email body / Attachments */}
                 <Card className="lg:sticky lg:top-6 self-start h-fit">
                     <CardHeader className="space-y-3">
-                        <div className="flex items-center justify-between gap-3">
-                            <CardTitle className="flex items-center gap-2">
-                                <FileText className="h-5 w-5" /> Document Preview
-                            </CardTitle>
-                            <div className="border-b border-[var(--border)]">
-                                <nav className="flex gap-4" aria-label="Preview tabs">
-                                    <button
-                                        type="button"
-                                        onClick={() => setPreviewTab("document")}
-                                        className={`pb-2 text-sm font-medium border-b-2 transition-colors -mb-px ${previewTab === "document"
-                                            ? "border-[var(--foreground)] text-[var(--foreground)]"
-                                            : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
-                                            }`}
-                                    >
-                                        Document
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setPreviewTab("json")}
-                                        className={`pb-2 text-sm font-medium border-b-2 transition-colors -mb-px ${previewTab === "json"
-                                            ? "border-[var(--foreground)] text-[var(--foreground)]"
-                                            : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
-                                            }`}
-                                    >
-                                        Digitized JSON
-                                    </button>
-                                </nav>
-                            </div>
-                        </div>
-                        {previewTab === "document" && (
-                            <label className="flex items-center gap-2 text-sm">
-                                <input
-                                    type="checkbox"
-                                    checked={confidenceOverlay}
-                                    onChange={(e) => setConfidenceOverlay(e.target.checked)}
-                                />
-                                Confidence overlay
-                            </label>
-                        )}
+                        <CardTitle className="flex items-center gap-2">
+                            <FileText className="h-5 w-5" /> Email content
+                        </CardTitle>
+                        <nav className="flex gap-4 border-b border-[var(--border)]" aria-label="Content tabs">
+                            <button
+                                type="button"
+                                onClick={() => setPreviewTab("json")}
+                                className={`pb-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                                    previewTab === "json"
+                                        ? "border-[var(--foreground)] text-[var(--foreground)]"
+                                        : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
+                                }`}
+                            >
+                                JSON body
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setPreviewTab("attachments")}
+                                className={`pb-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                                    previewTab === "attachments"
+                                        ? "border-[var(--foreground)] text-[var(--foreground)]"
+                                        : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
+                                }`}
+                            >
+                                Attachments
+                            </button>
+                        </nav>
                     </CardHeader>
                     <CardContent className="min-h-0">
-                        {previewTab === "document" ? (
-                            <div className="aspect-[3/4] bg-[var(--sidebar)] rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--muted)]">
-                                PDF/Image preview — extracted fields highlighted
-                                {confidenceOverlay && " (overlay on)"}
-                            </div>
-                        ) : (
+                        {previewTab === "json" && (
                             <div className="rounded-lg border border-[var(--border)] bg-[#282c34] overflow-auto max-h-[70vh]">
                                 <SyntaxHighlighter
                                     language="json"
@@ -292,395 +177,123 @@ export default function ApplicationDetailPage() {
                                 </SyntaxHighlighter>
                             </div>
                         )}
+                        {previewTab === "attachments" && (
+                            <div className="space-y-3">
+                                {attachments.length === 0 ? (
+                                    <p className="text-sm text-[var(--muted)]">No attachments.</p>
+                                ) : (
+                                    <>
+                                        <div>
+                                            <label className="block text-xs font-medium text-[var(--muted)] mb-1">
+                                                Select attachment
+                                            </label>
+                                            <Select
+                                                value={selectedAttachment?.id ?? ""}
+                                                onChange={(e) => setSelectedAttachmentId(e.target.value || null)}
+                                            >
+                                                {attachments.map((a) => (
+                                                    <option key={a.id} value={a.id}>
+                                                        {a.name}
+                                                    </option>
+                                                ))}
+                                            </Select>
+                                        </div>
+                                        <div className="aspect-[3/4] bg-[var(--sidebar)] rounded-lg border border-[var(--border)] flex flex-col items-center justify-center text-[var(--muted)] p-4">
+                                            <Paperclip className="h-10 w-10 mb-2" />
+                                            <span className="text-sm font-medium">
+                                                {selectedAttachment?.name ?? "—"}
+                                            </span>
+                                            <span className="text-xs mt-1">
+                                                {selectedAttachment?.type ?? ""}
+                                            </span>
+                                            <span className="text-xs mt-2">Preview placeholder</span>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 
-                {/* Right: Structured data */}
+                {/* Right: Extracted fields, confidence, approve/disapprove */}
                 <div className="space-y-6">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Extracted Fields</CardTitle>
-                            <p className="text-sm text-[var(--muted)]">Click a row to expand and see rule details. Low-confidence fields can be improved by editing the rule or reprocessing.</p>
-                            {error && (
-                                <p className="text-sm text-red-600" role="alert">{error}</p>
-                            )}
+                            <CardTitle>Extracted fields</CardTitle>
+                            <p className="text-sm text-[var(--muted)]">
+                                Confidence score:{" "}
+                                <Badge variant={avgConfidence >= 90 ? "safe" : avgConfidence >= 75 ? "review" : "risk"}>
+                                    {avgConfidence}%
+                                </Badge>
+                            </p>
                         </CardHeader>
                         <CardContent className="p-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead className="w-9" aria-label="Expand" />
                                         <TableHead>Field</TableHead>
                                         <TableHead>Value</TableHead>
                                         <TableHead>Confidence</TableHead>
-                                        <TableHead>Rule applied</TableHead>
                                         <TableHead>Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {fields.map((f) => {
-                                        const isExpanded = expandedFieldKey === f.field;
-                                        const isLowConfidence = f.confidence < CONFIDENCE_THRESHOLD;
                                         const decision = getFieldDecision(id, f.field);
+                                        const isLowConfidence = f.confidence < CONFIDENCE_THRESHOLD;
                                         return (
-                                            <React.Fragment key={f.field}>
-                                                <TableRow
-                                                    key={f.field}
-                                                    className={isLowConfidence ? "bg-amber-50/70" : undefined}
-                                                    onClick={() => setExpandedFieldKey((k) => (k === f.field ? null : f.field))}
-                                                    role="button"
-                                                    tabIndex={0}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === "Enter" || e.key === " ") {
-                                                            e.preventDefault();
-                                                            setExpandedFieldKey((k) => (k === f.field ? null : f.field));
+                                            <TableRow
+                                                key={f.field}
+                                                className={isLowConfidence ? "bg-amber-50/70" : undefined}
+                                            >
+                                                <TableCell className="font-medium">{f.field}</TableCell>
+                                                <TableCell>{f.value}</TableCell>
+                                                <TableCell>
+                                                    <Badge
+                                                        variant={
+                                                            f.confidence >= 90
+                                                                ? "safe"
+                                                                : f.confidence >= 75
+                                                                  ? "review"
+                                                                  : "risk"
                                                         }
-                                                    }}
-                                                    aria-expanded={isExpanded}
-                                                    aria-label={`${f.field}, value ${f.value}, confidence ${f.confidence}%, rule ${f.ruleName ?? "—"}${f.ruleVersion ? ` v${f.ruleVersion}` : ""}. Click to ${isExpanded ? "collapse" : "expand"} details`}
-                                                >
-                                                    <TableCell className="w-9">
-                                                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                                                    </TableCell>
-                                                    <TableCell className="font-medium">{f.field}</TableCell>
-                                                    <TableCell>{f.value}</TableCell>
-                                                    <TableCell>
-                                                        <Badge variant={f.confidence >= 90 ? "safe" : f.confidence >= 75 ? "review" : "risk"}>
-                                                            {f.confidence}%
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell>{f.ruleName ? (f.ruleVersion ? `${f.ruleName} (v${f.ruleVersion})` : f.ruleName) : "—"}</TableCell>
-                                                    <TableCell onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center gap-1">
-                                                            <Button
-                                                                size="icon"
-                                                                variant={decision === "approved" ? "default" : "outline"}
-                                                                className="h-7 w-7"
-                                                                onClick={(e) => handleFieldApprove(f.field, e)}
-                                                                aria-label={`Approve ${f.field}`}
-                                                                title="Approve"
-                                                            >
-                                                                <Check className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                            <Button
-                                                                size="icon"
-                                                                variant={decision === "rejected" ? "destructive" : "outline"}
-                                                                className="h-7 w-7"
-                                                                onClick={(e) => handleFieldReject(f.field, e)}
-                                                                aria-label={`Reject ${f.field}`}
-                                                                title="Reject"
-                                                            >
-                                                                <X className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                                {isExpanded && (
-                                                    <TableRow key={`${f.field}-detail`}>
-                                                        <TableCell colSpan={6} className="bg-[var(--sidebar)]/50 p-4">
-                                                            <div className="space-y-3 text-sm">
-                                                                <div><span className="font-medium">Field:</span> {f.field}</div>
-                                                                <div><span className="font-medium">Value:</span> {f.value}</div>
-                                                                <div><span className="font-medium">Confidence:</span> {f.confidence}%</div>
-                                                                <div>
-                                                                    <span className="font-medium">Rule:</span>{" "}
-                                                                    {f.ruleId ? (() => {
-                                                                        const r = getExtractionRule(f.ruleId!);
-                                                                        const href = r ? `/rules/extraction/${r.ruleBaseId}/edit${r.version ? `?version=${r.version}` : ""}` : "#";
-                                                                        return (
-                                                                            <Link href={href} className="text-[var(--foreground)] underline">
-                                                                                {f.ruleName ?? f.ruleId}{f.ruleVersion ? ` (v${f.ruleVersion})` : ""}
-                                                                            </Link>
-                                                                        );
-                                                                    })() : (
-                                                                        f.ruleName ?? "—"
-                                                                    )}
-                                                                </div>
-                                                                <div className="flex items-center gap-1 pt-2">
-                                                                    <Button
-                                                                        size="icon"
-                                                                        variant={decision === "approved" ? "default" : "outline"}
-                                                                        className="h-7 w-7"
-                                                                        onClick={(e) => { e.stopPropagation(); handleFieldApprove(f.field, e); }}
-                                                                        aria-label={`Approve ${f.field}`}
-                                                                        title="Approve field"
-                                                                    >
-                                                                        <Check className="h-3.5 w-3.5" />
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="icon"
-                                                                        variant={decision === "rejected" ? "destructive" : "outline"}
-                                                                        className="h-7 w-7"
-                                                                        onClick={(e) => { e.stopPropagation(); handleFieldReject(f.field, e); }}
-                                                                        aria-label={`Reject ${f.field}`}
-                                                                        title="Reject field"
-                                                                    >
-                                                                        <X className="h-3.5 w-3.5" />
-                                                                    </Button>
-                                                                </div>
-                                                                {isLowConfidence && (
-                                                                    <div className="flex flex-wrap gap-2 pt-2">
-                                                                        <Button
-                                                                            size="sm"
-                                                                            variant="outline"
-                                                                            onClick={(e) => { e.stopPropagation(); openEditRule(f); }}
-                                                                            aria-label={`Edit rule for ${f.field}`}
-                                                                        >
-                                                                            <Edit className="h-3 w-3 mr-1" /> Edit rule
-                                                                        </Button>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            variant="outline"
-                                                                            onClick={(e) => { e.stopPropagation(); handleReprocess(f.field); }}
-                                                                            disabled={reprocessingFieldKey === f.field}
-                                                                            aria-label={reprocessingFieldKey === f.field ? `Reprocessing ${f.field}` : `Reprocess ${f.field}`}
-                                                                        >
-                                                                            <RefreshCw className={`h-3 w-3 mr-1 ${reprocessingFieldKey === f.field ? "animate-spin" : ""}`} />
-                                                                            {reprocessingFieldKey === f.field ? "Reprocessing…" : "Reprocess field"}
-                                                                        </Button>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                )}
-                                            </React.Fragment>
+                                                    >
+                                                        {f.confidence}%
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="flex items-center gap-1">
+                                                        <Button
+                                                            size="icon"
+                                                            variant={decision === "approved" ? "default" : "outline"}
+                                                            className="h-7 w-7"
+                                                            onClick={(e) => handleFieldApprove(f.field, e)}
+                                                            aria-label={`Approve ${f.field}`}
+                                                            title="Approve"
+                                                        >
+                                                            <Check className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                        <Button
+                                                            size="icon"
+                                                            variant={decision === "rejected" ? "destructive" : "outline"}
+                                                            className="h-7 w-7"
+                                                            onClick={(e) => handleFieldReject(f.field, e)}
+                                                            aria-label={`Reject ${f.field}`}
+                                                            title="Reject"
+                                                        >
+                                                            <X className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
                                         );
                                     })}
                                 </TableBody>
                             </Table>
                         </CardContent>
                     </Card>
-
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Rule Evaluation Summary</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-sm text-[var(--muted)]">Extraction rules applied. Low confidence fields flagged for review.</p>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Risk Model Explanation</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-sm text-[var(--muted)]">Risk score 35 driven by low confidence on some extracted fields.</p>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Decision Trace Timeline</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <ul className="space-y-2">
-                                {timelineSteps.map((s) => (
-                                    <li key={s.stage} className="flex items-center gap-3 text-sm">
-                                        <span className={`w-2 h-2 rounded-full ${s.status === "completed" ? "bg-[var(--safe)]" : "bg-[var(--border)]"}`} />
-                                        <span className="font-medium">{s.stage}</span>
-                                        <span className="text-[var(--muted)]">{s.time}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </CardContent>
-                    </Card>
                 </div>
             </div>
-
-            {/* Edit rule modal: two columns — form + Test (left), JSON viewer + Save (right) */}
-            {editModal && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="edit-rule-title"
-                    onKeyDown={(e) => e.key === "Escape" && setEditModal(null)}
-                >
-                    <Card className="w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                        <CardHeader className="flex flex-row items-center justify-between shrink-0">
-                            <CardTitle id="edit-rule-title">Edit rule for this field</CardTitle>
-                            <Button variant="ghost" size="icon" onClick={() => setEditModal(null)} aria-label="Close">×</Button>
-                        </CardHeader>
-                        <CardContent className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-6 pb-6">
-                            {/* Left column: version, form, Test */}
-                            <div className="space-y-4 min-w-0">
-                                <p className="text-sm text-[var(--muted)]">
-                                    Run Test to see extraction output. Save creates a new version and maps it to this field only.
-                                </p>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Version</label>
-                                    <Select
-                                        value={editModal.ruleId}
-                                        onChange={(e) => handleEditModalVersionChange(e.target.value)}
-                                        className="w-full"
-                                    >
-                                        {listVersionsForRule(editModal.ruleBaseId).map((v) => (
-                                            <option key={v.id} value={v.id}>v{v.version}</option>
-                                        ))}
-                                    </Select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1" htmlFor="edit-rule-name">Name</label>
-                                    <Input
-                                        id="edit-rule-name"
-                                        ref={editModalNameInputRef}
-                                        value={editModal.name}
-                                        onChange={(e) => setEditModal((m) => m ? { ...m, name: e.target.value } : null)}
-                                        className="w-full"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Description (optional)</label>
-                                    <Input
-                                        value={editModal.description}
-                                        onChange={(e) => setEditModal((m) => m ? { ...m, description: e.target.value } : null)}
-                                        className="w-full"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Prompt</label>
-                                    <textarea
-                                        value={editModal.prompt}
-                                        onChange={(e) => setEditModal((m) => m ? { ...m, prompt: e.target.value } : null)}
-                                        rows={6}
-                                        className="flex w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm min-h-[120px] resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20"
-                                        placeholder="e.g. Extract the applicant's full name from the document header."
-                                    />
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2 pt-2">
-                                    <div className="flex items-center gap-2">
-                                        <Button onClick={handleTestRule} disabled={editModalTesting}>
-                                            {editModalTesting ? "Testing…" : "Test"}
-                                        </Button>
-                                        <Button variant="outline" onClick={() => setEditModal(null)}>Cancel</Button>
-                                    </div>
-                                    <div className="flex items-center gap-2 ml-auto">
-                                        <label className="text-sm text-[var(--muted)] shrink-0">Simulate:</label>
-                                        <Select
-                                            value={testSimulateMode}
-                                            onChange={(e) => setTestSimulateMode(e.target.value as "positive" | "negative")}
-                                            className="w-36"
-                                            disabled={editModalTesting}
-                                        >
-                                            <option value="positive">Positive (improved)</option>
-                                            <option value="negative">Negative (regression)</option>
-                                        </Select>
-                                    </div>
-                                </div>
-                            </div>
-                            {/* Right column: Confidence comparison, JSON viewer, Save */}
-                            <div className="flex flex-col min-h-0 min-w-0 space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">Confidence impact</label>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 p-4 text-center">
-                                            <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Before</p>
-                                            <p className="text-2xl font-bold mt-1 tabular-nums" style={{ color: "var(--foreground)" }}>
-                                                {Number(editModal.previousConfidence) || 0}%
-                                            </p>
-                                            <p className="text-xs text-[var(--muted)] mt-0.5">current extraction</p>
-                                        </div>
-                                        <div className={`rounded-lg border p-4 text-center ${editModal.testOutput != null
-                                            ? (Number(editModal.testOutput.confidence) || 0) >= (Number(editModal.previousConfidence) || 0)
-                                                ? "border-[var(--safe)] bg-[var(--safe)]/10"
-                                                : "border-red-500 bg-red-500/10"
-                                            : "border-[var(--border)] bg-[var(--sidebar)]/30"
-                                            }`}>
-                                            <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">After</p>
-                                            {editModal.testOutput != null ? (
-                                                (() => {
-                                                    const before = Number(editModal.previousConfidence) || 0;
-                                                    const after = Number(editModal.testOutput.confidence) || 0;
-                                                    const delta = after - before;
-                                                    const isImprovement = delta >= 0;
-                                                    return (
-                                                        <>
-                                                            <p className={`text-2xl font-bold mt-1 tabular-nums ${isImprovement ? "text-[var(--safe)]" : "text-red-500"}`}>
-                                                                {after}%
-                                                            </p>
-                                                            <p className="text-xs mt-0.5">
-                                                                <span className={isImprovement ? "text-[var(--safe)]" : "text-red-500"}>
-                                                                    {delta >= 0 ? "↑" : "↓"} {Math.abs(delta)} pts
-                                                                </span>
-                                                            </p>
-                                                        </>
-                                                    );
-                                                })()
-                                            ) : (
-                                                <p className="text-sm text-[var(--muted)] mt-2">Run Test</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                    {editModal.testOutput != null && (
-                                        (() => {
-                                            const beforeVal = Number(editModal.previousConfidence) || 0;
-                                            const afterVal = Number(editModal.testOutput.confidence) || 0;
-                                            const afterColor = afterVal >= beforeVal ? "var(--safe)" : "#ef4444";
-                                            return (
-                                                <div className="mt-3 h-[80px] w-full">
-                                                    <ResponsiveContainer width="100%" height="100%">
-                                                        <BarChart
-                                                            data={[
-                                                                { label: "Before", value: beforeVal, fill: "var(--muted)" },
-                                                                { label: "After", value: afterVal, fill: afterColor },
-                                                            ]}
-                                                            margin={{ top: 4, right: 8, left: 8, bottom: 4 }}
-                                                        >
-                                                            <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                                                            <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={24} />
-                                                            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                                                                <Cell fill="var(--muted)" />
-                                                                <Cell fill={afterColor} />
-                                                            </Bar>
-                                                        </BarChart>
-                                                    </ResponsiveContainer>
-                                                </div>
-                                            );
-                                        })()
-                                    )}
-                                </div>
-                                <div className="flex-1 min-h-0 flex flex-col">
-                                    <label className="block text-sm font-medium mb-1">Test output</label>
-                                    <div className="flex-1 min-h-[180px] rounded-md border border-[var(--border)] bg-[#282c34] overflow-auto">
-                                        {editModal.testOutput != null ? (
-                                            <SyntaxHighlighter
-                                                language="json"
-                                                style={oneDark}
-                                                customStyle={{
-                                                    margin: 0,
-                                                    padding: "0.75rem 1rem",
-                                                    fontSize: "0.75rem",
-                                                    lineHeight: 1.5,
-                                                    background: "transparent",
-                                                    minHeight: "100%",
-                                                }}
-                                                codeTagProps={{ style: { fontFamily: "ui-monospace, monospace" } }}
-                                                showLineNumbers={false}
-                                                PreTag="div"
-                                            >
-                                                {JSON.stringify(editModal.testOutput, null, 2)}
-                                            </SyntaxHighlighter>
-                                        ) : (
-                                            <p className="text-sm text-gray-400 p-4">Run Test to see extraction output here.</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="pt-4 flex justify-end shrink-0">
-                                    <Button
-                                        onClick={saveEditRule}
-                                        disabled={editModal.testOutput == null}
-                                        title={editModal.testOutput == null ? "Run Test first to enable Save" : undefined}
-                                    >
-                                        Save (creates new version)
-                                    </Button>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
         </div>
     );
 }
