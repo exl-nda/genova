@@ -1,11 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const pathname = usePathname();
+
+  useEffect(() => {
+    // Collapse by default on HDA detail screen.
+    if (/^\/applications\/[^/]+$/.test(pathname)) {
+      setSidebarCollapsed(true);
+    }
+  }, [pathname]);
 
   return (
     <div className="flex h-screen overflow-hidden">
