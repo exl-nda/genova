@@ -25,6 +25,7 @@ import {
     editRuleFromField,
     reprocessField,
     getFieldDecision,
+    getFieldDecisionReason,
     setFieldDecision,
 } from "@/data/extraction-store";
 import type { ExtractedField } from "@/data/mock";
@@ -63,6 +64,10 @@ export default function ApplicationDetailPage() {
     const [editModalTesting, setEditModalTesting] = useState(false);
     const [testSimulateMode, setTestSimulateMode] = useState<"positive" | "negative">("positive");
     const [reprocessingFieldKey, setReprocessingFieldKey] = useState<string | null>(null);
+    const [rejectModal, setRejectModal] = useState<{
+        fieldKey: string;
+        reason: string;
+    } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const editModalNameInputRef = useRef<HTMLInputElement>(null);
 
@@ -200,8 +205,26 @@ export default function ApplicationDetailPage() {
 
     const handleFieldReject = (fieldKey: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        setFieldDecision(id, fieldKey, "rejected");
+        setRejectModal({
+            fieldKey,
+            reason: getFieldDecisionReason(id, fieldKey) ?? "",
+        });
+    };
+
+    const submitFieldReject = (fieldKey: string, reason: string, editRuleAfterSubmit: boolean) => {
+        const trimmedReason = reason.trim();
+        if (!trimmedReason) {
+            setError("Please provide a reason before rejecting the field.");
+            return;
+        }
+        setError(null);
+        setFieldDecision(id, fieldKey, "rejected", trimmedReason);
         setFields((prev) => [...prev]);
+        setRejectModal(null);
+        if (editRuleAfterSubmit) {
+            const field = fields.find((f) => f.field === fieldKey);
+            if (field) openEditRule(field);
+        }
     };
 
     return (
@@ -322,6 +345,7 @@ export default function ApplicationDetailPage() {
                                         const isExpanded = expandedFieldKey === f.field;
                                         const isLowConfidence = f.confidence < CONFIDENCE_THRESHOLD;
                                         const decision = getFieldDecision(id, f.field);
+                                        const decisionReason = getFieldDecisionReason(id, f.field);
                                         return (
                                             <React.Fragment key={f.field}>
                                                 <TableRow
@@ -418,6 +442,11 @@ export default function ApplicationDetailPage() {
                                                                         <X className="h-3.5 w-3.5" />
                                                                     </Button>
                                                                 </div>
+                                                                {decision === "rejected" && decisionReason && (
+                                                                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-800">
+                                                                        <span className="font-medium">Rejection reason:</span> {decisionReason}
+                                                                    </div>
+                                                                )}
                                                                 {isLowConfidence && (
                                                                     <div className="flex flex-wrap gap-2 pt-2">
                                                                         <Button
@@ -676,6 +705,53 @@ export default function ApplicationDetailPage() {
                                         Save (creates new version)
                                     </Button>
                                 </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {rejectModal && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="reject-field-title"
+                    onClick={() => setRejectModal(null)}
+                >
+                    <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+                        <CardHeader>
+                            <CardTitle id="reject-field-title">Reject field with reason</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <p className="text-sm text-[var(--muted)]">
+                                Please provide a reason for rejecting <span className="font-medium">{rejectModal.fieldKey}</span>.
+                            </p>
+                            <textarea
+                                value={rejectModal.reason}
+                                onChange={(e) =>
+                                    setRejectModal((m) => (m ? { ...m, reason: e.target.value } : null))
+                                }
+                                rows={5}
+                                placeholder="Describe why this extracted value is incorrect."
+                                className="flex w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20"
+                            />
+                            <div className="flex flex-wrap gap-2 justify-end">
+                                <Button variant="outline" onClick={() => setRejectModal(null)}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => submitFieldReject(rejectModal.fieldKey, rejectModal.reason, true)}
+                                >
+                                    Submit and Edit Rule
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    onClick={() => submitFieldReject(rejectModal.fieldKey, rejectModal.reason, false)}
+                                >
+                                    Submit and Skip Rule Editing
+                                </Button>
                             </div>
                         </CardContent>
                     </Card>

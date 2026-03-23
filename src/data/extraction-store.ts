@@ -303,14 +303,25 @@ export function editRuleFromField(
 // --- Per-field approve/reject (application detail) ---
 type FieldDecision = "approved" | "rejected";
 const fieldDecisions: Record<string, Record<string, FieldDecision>> = {};
+const fieldDecisionReasons: Record<string, Record<string, string>> = {};
 
 export function getFieldDecision(applicationId: string, fieldKey: string): FieldDecision | undefined {
     return fieldDecisions[applicationId]?.[fieldKey];
 }
 
-export function setFieldDecision(applicationId: string, fieldKey: string, decision: FieldDecision): void {
+export function getFieldDecisionReason(applicationId: string, fieldKey: string): string | undefined {
+    return fieldDecisionReasons[applicationId]?.[fieldKey];
+}
+
+export function setFieldDecision(applicationId: string, fieldKey: string, decision: FieldDecision, reason?: string): void {
     if (!fieldDecisions[applicationId]) fieldDecisions[applicationId] = {};
     fieldDecisions[applicationId][fieldKey] = decision;
+    if (!fieldDecisionReasons[applicationId]) fieldDecisionReasons[applicationId] = {};
+    if (decision === "rejected") {
+        fieldDecisionReasons[applicationId][fieldKey] = (reason ?? "").trim();
+    } else {
+        delete fieldDecisionReasons[applicationId][fieldKey];
+    }
 }
 
 // --- Rule performance (aggregate precision across applications) ---
