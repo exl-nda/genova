@@ -4,7 +4,7 @@ import React from "react";
 import { useParams } from "next/navigation";
 import { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
-import { Document, Page, pdfjs } from "react-pdf";
+import dynamic from "next/dynamic";
 import {
     Table,
     TableBody,
@@ -35,7 +35,8 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from "recharts";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+const PdfDocument = dynamic(async () => (await import("react-pdf")).Document, { ssr: false });
+const PdfPage = dynamic(async () => (await import("react-pdf")).Page, { ssr: false });
 
 const CONFIDENCE_THRESHOLD = 80;
 const REMOTE_PDF_URL =
@@ -105,6 +106,16 @@ export default function ApplicationDetailPage() {
             editModalNameInputRef.current?.focus();
         }
     }, [editModal]);
+
+    useEffect(() => {
+        // Configure pdf.js worker on client only to avoid DOMMatrix runtime issues.
+        void import("react-pdf").then(({ pdfjs }) => {
+            pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+                "pdfjs-dist/build/pdf.worker.min.mjs",
+                import.meta.url
+            ).toString();
+        });
+    }, []);
 
     useEffect(() => {
         const el = pdfViewportRef.current;
@@ -452,7 +463,7 @@ export default function ApplicationDetailPage() {
                 </div>
             )}
 
-            <div className={isDetailFullscreen ? "grid h-full min-h-0 grid-cols-1 gap-3 lg:grid-cols-2" : "grid grid-cols-1 lg:grid-cols-2 gap-6"}>
+            <div className={isDetailFullscreen ? "grid h-full min-h-0 grid-cols-1 gap-3 lg:grid-cols-[55%_45%]" : "grid grid-cols-1 gap-6 lg:grid-cols-[55%_45%]"}>
                 {/* Left: Document viewer */}
                 <Card className={isDetailFullscreen ? "h-full min-h-0 shadow-none" : "lg:sticky lg:top-6 self-start h-fit shadow-none"}>
                     <CardContent className={isDetailFullscreen ? "flex h-full min-h-0 flex-col p-3" : "min-h-0 p-3"}>
@@ -568,7 +579,7 @@ export default function ApplicationDetailPage() {
                                     ref={pdfViewportRef}
                                     className={isDetailFullscreen ? "flex-1 min-h-0 overflow-auto rounded-md border border-[var(--border)] bg-white p-2" : "overflow-auto rounded-md border border-[var(--border)] bg-white p-2"}
                                 >
-                                    <Document
+                                    <PdfDocument
                                         file={selectedPdfFile}
                                         loading={<p className="p-4 text-sm text-[var(--muted)]">Loading PDF…</p>}
                                         onLoadSuccess={({ numPages }) => {
@@ -582,7 +593,7 @@ export default function ApplicationDetailPage() {
                                         }}
                                     >
                                         <div className="relative inline-block">
-                                            <Page
+                                            <PdfPage
                                                 pageNumber={pdfPageNumber}
                                                 width={Math.round(pdfFitWidth * pdfZoom)}
                                                 renderTextLayer={false}
@@ -613,7 +624,7 @@ export default function ApplicationDetailPage() {
                                                 </div>
                                             )}
                                         </div>
-                                    </Document>
+                                    </PdfDocument>
                                 </div>
                             </div>
                         ) : (
