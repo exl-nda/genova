@@ -14,7 +14,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -380,9 +380,8 @@ function SmartPromptEditor({ value, onChange, placeholder }: SmartPromptEditorPr
                                 e.preventDefault();
                                 applySuggestion(s);
                             }}
-                            className={`block w-full text-left px-2 py-1 text-sm ${
-                                idx === activeIndex ? "bg-[var(--sidebar)] font-semibold" : "hover:bg-[var(--sidebar)]/60"
-                            }`}
+                            className={`block w-full text-left px-2 py-1 text-sm ${idx === activeIndex ? "bg-[var(--sidebar)] font-semibold" : "hover:bg-[var(--sidebar)]/60"
+                                }`}
                         >
                             <span className={idx === activeIndex ? "font-semibold" : "font-normal"}>{s}</span>
                         </button>
@@ -535,7 +534,7 @@ export default function ApplicationDetailPage() {
         if (!DOCUMENT_FIELD_KEYS.includes(editModal.fieldName as (typeof DOCUMENT_FIELD_KEYS)[number])) {
             setError("Invalid field name. Please choose a valid document field.");
             return;
-          }
+        }
         setError(null);
         try {
             editRuleFromField(id, editModal.fieldKey, editModal.ruleId, "Divya Shukla", {
@@ -566,9 +565,9 @@ export default function ApplicationDetailPage() {
         });
     };
     const isEditFieldNameValid =
-      !editModal || DOCUMENT_FIELD_KEYS.includes(editModal.fieldName as (typeof DOCUMENT_FIELD_KEYS)[number]);
-    
-      const handleTestRule = () => {
+        !editModal || DOCUMENT_FIELD_KEYS.includes(editModal.fieldName as (typeof DOCUMENT_FIELD_KEYS)[number]);
+
+    const handleTestRule = () => {
         if (!editModal) return;
         setEditModalTesting(true);
         setError(null);
@@ -643,21 +642,21 @@ export default function ApplicationDetailPage() {
         let nextValue = field.value;
         if (mode === "use_kg") nextValue = selectedKgValue || field.value;
         if (mode === "manual") nextValue = manualValue.trim() || field.value;
-        
+
         const isChangingValue =
-        (mode === "use_kg" && (selectedKgValue || field.value) !== field.value) ||
-        (mode === "manual" && (manualValue.trim() || field.value) !== field.value);
+            (mode === "use_kg" && (selectedKgValue || field.value) !== field.value) ||
+            (mode === "manual" && (manualValue.trim() || field.value) !== field.value);
 
         if (isChangingValue && !changeReason) {
-        setError("Please select why you are changing this value.");
-        return;
+            setError("Please select why you are changing this value.");
+            return;
         }
         setFields((prev) =>
             prev.map((x) => (x.field === fieldKey ? { ...x, value: nextValue } : x))
         );
         setValueEditModal(null);
     };
-    
+
     const knowledgeGraphValues: Record<string, string> = {
         "Catalog Item": "Yes",
         "Load TBA": "No",
@@ -675,27 +674,27 @@ export default function ApplicationDetailPage() {
 
     const extractedFieldsPanel = (
         <Card className={isDetailFullscreen ? "min-h-0" : undefined}>
-            <CardHeader>
-                <CardTitle>Extracted Fields</CardTitle>
-                <p className="text-sm text-[var(--muted)]">Click a row to expand and see rule details. Low-confidence fields can be improved by editing the rule or reprocessing.</p>
-                {error && (
-                    <p className="text-sm text-red-600" role="alert">{error}</p>
-                )}
-            </CardHeader>
+            {!isDetailFullscreen && (
+                <CardHeader>
+                    <CardTitle>Extracted Fields</CardTitle>
+                    <p className="text-sm text-[var(--muted)]">Click a row to expand and see rule details. Low-confidence fields can be improved by editing the rule or reprocessing.</p>
+                    {error && (
+                        <p className="text-sm text-red-600" role="alert">{error}</p>
+                    )}
+                </CardHeader>
+            )}
             <CardContent className={isDetailFullscreen ? "min-h-0 p-0" : "p-0"}>
-                <Table>
-                    <TableHeader className="sticky top-0 z-20 bg-[var(--background)]">
-                        <TableRow className="hover:bg-transparent">
-                            <TableHead className="w-9" aria-label="Expand" />
-                            <TableHead>Field</TableHead>
-                            <TableHead>Extracted Value</TableHead>
-                            <TableHead>KG</TableHead>
-                            <TableHead>Trust Score</TableHead>
-                            <TableHead>Rule applied</TableHead>
-                            <TableHead>Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                <div className={isDetailFullscreen ? "max-h-[calc(100vh-28px)] overflow-y-auto shadow-none" : "shadow-none"}>
+                    <div className="sticky top-0 z-20 grid grid-cols-[36px_1.2fr_1.4fr_1fr_0.9fr_1.2fr_120px] border-b border-[var(--border)] bg-[var(--background)] text-xs font-medium text-[var(--muted)]">
+                        <div className="px-4 py-3" aria-label="Expand" />
+                        <div className="px-4 py-3">Field</div>
+                        <div className="px-4 py-3">Extracted Value</div>
+                        <div className="px-4 py-3">KG</div>
+                        <div className="px-4 py-3">Trust Score</div>
+                        <div className="px-4 py-3">Rule applied</div>
+                        <div className="px-4 py-3">Actions</div>
+                    </div>
+                    <div className="text-xs">
                         {fields.map((f) => {
                             const isExpanded = expandedFieldKey === f.field;
                             const isLowConfidence = f.confidence < CONFIDENCE_THRESHOLD;
@@ -703,9 +702,8 @@ export default function ApplicationDetailPage() {
                             const decisionReason = getFieldDecisionReason(id, f.field);
                             return (
                                 <React.Fragment key={f.field}>
-                                    <TableRow
-                                        key={f.field}
-                                        className={`${isLowConfidence ? "bg-amber-50/70" : ""} cursor-pointer`}
+                                    <div
+                                        className={`grid grid-cols-[36px_1.2fr_1.4fr_1fr_0.9fr_1.2fr_120px] border-b border-[var(--border)] transition-colors hover:bg-[var(--sidebar)]/50 ${isLowConfidence ? "bg-amber-50/70" : ""} cursor-pointer`}
                                         onClick={() => setExpandedFieldKey((k) => (k === f.field ? null : f.field))}
                                         onMouseEnter={() => setHoveredFieldKey(f.field)}
                                         onMouseLeave={() => setHoveredFieldKey((k) => (k === f.field ? null : k))}
@@ -722,19 +720,19 @@ export default function ApplicationDetailPage() {
                                         aria-expanded={isExpanded}
                                         aria-label={`${f.field}, value ${f.value}, confidence ${f.confidence}%, rule ${f.ruleName ?? "—"}${f.ruleVersion ? ` v${f.ruleVersion}` : ""}. Click to ${isExpanded ? "collapse" : "expand"} details`}
                                     >
-                                        <TableCell className="w-9">
+                                        <div className="px-4 py-4">
                                             {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                                        </TableCell>
-                                        <TableCell className="font-medium">{f.field}</TableCell>
-                                        <TableCell>{f.value}</TableCell>
-                                        <TableCell>{knowledgeGraphValues[f.field] ?? "—"}</TableCell>
-                                        <TableCell>
+                                        </div>
+                                        <div className="px-4 py-4 font-medium">{f.field}</div>
+                                        <div className="px-4 py-4">{f.value}</div>
+                                        <div className="px-4 py-4">{knowledgeGraphValues[f.field] ?? "—"}</div>
+                                        <div className="px-4 py-4">
                                             <Badge variant={f.confidence >= 90 ? "safe" : f.confidence >= 75 ? "review" : "risk"}>
                                                 {f.confidence}%
                                             </Badge>
-                                        </TableCell>
-                                        <TableCell>{f.ruleName ? (f.ruleVersion ? `${f.ruleName} (v${f.ruleVersion})` : f.ruleName) : "—"}</TableCell>
-                                        <TableCell onClick={(e) => e.stopPropagation()}>
+                                        </div>
+                                        <div className="px-4 py-4">{f.ruleName ? (f.ruleVersion ? `${f.ruleName} (v${f.ruleVersion})` : f.ruleName) : "—"}</div>
+                                        <div className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex items-center gap-1">
                                                 <Button
                                                     size="icon"
@@ -767,86 +765,83 @@ export default function ApplicationDetailPage() {
                                                     <Edit className="h-3.5 w-3.5" />
                                                 </Button>
                                             </div>
-                                        </TableCell>
-                                    </TableRow>
+                                        </div>
+                                    </div>
                                     {isExpanded && (
-                                        <TableRow key={`${f.field}-detail`}>
-                                            <TableCell colSpan={7} className="bg-[var(--sidebar)]/50 p-4">
-                                                <div className="space-y-3 text-sm">
-                                                    <div><span className="font-medium">Field:</span> {f.field}</div>
-                                                    <div><span className="font-medium">Value:</span> {f.value}</div>
-                                                    <div><span className="font-medium">Confidence:</span> {f.confidence}%</div>
-                                                    <div>
-                                                        <span className="font-medium">Rule:</span>{" "}
-                                                        {f.ruleId ? (() => {
-                                                            const r = getExtractionRule(f.ruleId!);
-                                                            const href = r ? `/rules/extraction/${r.ruleBaseId}/edit${r.version ? `?version=${r.version}` : ""}` : "#";
-                                                            return (
-                                                                <Link href={href} className="text-[var(--foreground)] underline">
-                                                                    {f.ruleName ?? f.ruleId}{f.ruleVersion ? ` (v${f.ruleVersion})` : ""}
-                                                                </Link>
-                                                            );
-                                                        })() : (
-                                                            f.ruleName ?? "—"
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center gap-1 pt-2">
-                                                        <Button
-                                                            size="icon"
-                                                            variant={decision === "approved" ? "default" : "outline"}
-                                                            className="h-7 w-7"
-                                                            onClick={(e) => { e.stopPropagation(); handleFieldApprove(f.field, e); }}
-                                                            aria-label={`Approve ${f.field}`}
-                                                            title="Approve field"
-                                                        >
-                                                            <Check className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                        <Button
-                                                            size="icon"
-                                                            variant={decision === "rejected" ? "destructive" : "outline"}
-                                                            className="h-7 w-7"
-                                                            onClick={(e) => { e.stopPropagation(); handleFieldReject(f.field, e); }}
-                                                            aria-label={`Reject ${f.field}`}
-                                                            title="Reject field"
-                                                        >
-                                                            <X className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                    </div>
-                                                    {decision === "rejected" && decisionReason && (
-                                                        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-800">
-                                                            <span className="font-medium">Rejection reason:</span> {decisionReason}
-                                                        </div>
+                                        <div className="border-b border-[var(--border)] bg-[var(--sidebar)]/50 p-4">
+                                            <div className="space-y-3 text-sm">
+                                                <div><span className="font-medium">Field:</span> {f.field}</div>
+                                                <div><span className="font-medium">Value:</span> {f.value}</div>
+                                                <div><span className="font-medium">Confidence:</span> {f.confidence}%</div>
+                                                <div>
+                                                    <span className="font-medium">Rule:</span>{" "}
+                                                    {f.ruleId ? (() => {
+                                                        const r = getExtractionRule(f.ruleId!);
+                                                        const href = r ? `/rules/extraction/${r.ruleBaseId}/edit${r.version ? `?version=${r.version}` : ""}` : "#";
+                                                        return (
+                                                            <Link href={href} className="text-[var(--foreground)] underline">
+                                                                {f.ruleName ?? f.ruleId}{f.ruleVersion ? ` (v${f.ruleVersion})` : ""}
+                                                            </Link>
+                                                        );
+                                                    })() : (
+                                                        f.ruleName ?? "—"
                                                     )}
-                                                        <div className="flex flex-wrap gap-2 pt-2">
-                                                        <Button
-                                                          size="sm"
-                                                          variant="outline"
-                                                          onClick={(e) => { e.stopPropagation(); openEditRule(f); }}
-                                                          aria-label={`Edit rule for ${f.field}`}
-                                                        >
-                                                          <Edit className="h-3 w-3 mr-1" /> Edit rule
-                                                        </Button>
-                                                        <Button
-                                                          size="sm"
-                                                          variant="outline"
-                                                          onClick={(e) => { e.stopPropagation(); handleReprocess(f.field); }}
-                                                          disabled={reprocessingFieldKey === f.field}
-                                                          aria-label={reprocessingFieldKey === f.field ? `Reprocessing ${f.field}` : `Reprocess ${f.field}`}
-                                                        >
-                                                          <RefreshCw className={`h-3 w-3 mr-1 ${reprocessingFieldKey === f.field ? "animate-spin" : ""}`} />
-                                                          {reprocessingFieldKey === f.field ? "Reprocessing…" : "Reprocess field"}
-                                                        </Button>
-                                                      </div>
-                                                 
                                                 </div>
-                                            </TableCell>
-                                        </TableRow>
+                                                <div className="flex items-center gap-1 pt-2">
+                                                    <Button
+                                                        size="icon"
+                                                        variant={decision === "approved" ? "default" : "outline"}
+                                                        className="h-7 w-7"
+                                                        onClick={(e) => { e.stopPropagation(); handleFieldApprove(f.field, e); }}
+                                                        aria-label={`Approve ${f.field}`}
+                                                        title="Approve field"
+                                                    >
+                                                        <Check className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                    <Button
+                                                        size="icon"
+                                                        variant={decision === "rejected" ? "destructive" : "outline"}
+                                                        className="h-7 w-7"
+                                                        onClick={(e) => { e.stopPropagation(); handleFieldReject(f.field, e); }}
+                                                        aria-label={`Reject ${f.field}`}
+                                                        title="Reject field"
+                                                    >
+                                                        <X className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                </div>
+                                                {decision === "rejected" && decisionReason && (
+                                                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-800">
+                                                        <span className="font-medium">Rejection reason:</span> {decisionReason}
+                                                    </div>
+                                                )}
+                                                <div className="flex flex-wrap gap-2 pt-2">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={(e) => { e.stopPropagation(); openEditRule(f); }}
+                                                        aria-label={`Edit rule for ${f.field}`}
+                                                    >
+                                                        <Edit className="h-3 w-3 mr-1" /> Edit rule
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={(e) => { e.stopPropagation(); handleReprocess(f.field); }}
+                                                        disabled={reprocessingFieldKey === f.field}
+                                                        aria-label={reprocessingFieldKey === f.field ? `Reprocessing ${f.field}` : `Reprocess ${f.field}`}
+                                                    >
+                                                        <RefreshCw className={`h-3 w-3 mr-1 ${reprocessingFieldKey === f.field ? "animate-spin" : ""}`} />
+                                                        {reprocessingFieldKey === f.field ? "Reprocessing…" : "Reprocess field"}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     )}
                                 </React.Fragment>
                             );
                         })}
-                    </TableBody>
-                </Table>
+                    </div>
+                </div>
             </CardContent>
         </Card>
     );
@@ -1011,8 +1006,8 @@ export default function ApplicationDetailPage() {
                                                 <div className="pointer-events-none absolute inset-0">
                                                     <div
                                                         className={`absolute rounded-sm border ${hoveredField.confidence < CONFIDENCE_THRESHOLD
-                                                                ? "border-red-500 bg-red-500/20"
-                                                                : "border-emerald-500 bg-emerald-500/20"
+                                                            ? "border-red-500 bg-red-500/20"
+                                                            : "border-emerald-500 bg-emerald-500/20"
                                                             }`}
                                                         style={{
                                                             left: `${hoveredBox.x * 100}%`,
@@ -1098,7 +1093,7 @@ export default function ApplicationDetailPage() {
                 </div>
             </div>
 
-            {/* Edit rule modal: two columns — form + Test (left), JSON viewer + Save (right) */}
+            {/* Edit rule modal: three columns — form, output, graph */}
             {editModal && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
@@ -1107,24 +1102,17 @@ export default function ApplicationDetailPage() {
                     aria-labelledby="edit-rule-title"
                     onKeyDown={(e) => e.key === "Escape" && setEditModal(null)}
                 >
-                    <Card className="w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                    <Card className="w-full max-w-7xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
                         <CardHeader className="flex flex-row items-center justify-between shrink-0">
                             <CardTitle id="edit-rule-title">Edit rule for this field</CardTitle>
                             <Button variant="ghost" size="icon" onClick={() => setEditModal(null)} aria-label="Close">×</Button>
                         </CardHeader>
-                        <CardContent className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-6 pb-6">
-                            {/* Left column: version, form, Test */}
-                            <div className="space-y-4 min-w-0">
+                        <CardContent className="flex-1 min-h-0 overflow-hidden grid grid-cols-1 xl:grid-cols-3 gap-6 pb-6">
+                            {/* Column 1: version + form */}
+                            <div className="space-y-4 min-w-0 min-h-0 overflow-y-auto pr-1">
                                 <p className="text-sm text-[var(--muted)]">
                                     Run Test to see extraction output. Save creates a new version and maps it to this field only.
                                 </p>
-                                <p className="text-xs text-[var(--muted)]">
-                                    Last edited by: {getExtractionRule(editModal.ruleId)?.lastEditedBy ?? "—"}{" "}
-                                    on{" "}
-                                    {getExtractionRule(editModal.ruleId)?.lastEditedAt
-                                        ? new Date(getExtractionRule(editModal.ruleId)!.lastEditedAt!).toLocaleString()
-                                        : "—"}
-                                    </p>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Version</label>
                                     <Select
@@ -1136,6 +1124,12 @@ export default function ApplicationDetailPage() {
                                             <option key={v.id} value={v.id}>v{v.version}</option>
                                         ))}
                                     </Select>
+                                    <p className="mt-1 text-xs text-[var(--muted)]">
+                                        Last edited by {getExtractionRule(editModal.ruleId)?.lastEditedBy ?? "—"} on{" "}
+                                        {getExtractionRule(editModal.ruleId)?.lastEditedAt
+                                            ? new Date(getExtractionRule(editModal.ruleId)!.lastEditedAt!).toLocaleString()
+                                            : "—"}
+                                    </p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1" htmlFor="edit-field-name">Field name</label>
@@ -1148,7 +1142,7 @@ export default function ApplicationDetailPage() {
                                     {!isEditFieldNameValid && (
                                         <p className="mt-1 text-xs text-red-600">Field name is invalid.</p>
                                     )}
-                                    </div>
+                                </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Description (optional)</label>
                                     <Input
@@ -1165,30 +1159,37 @@ export default function ApplicationDetailPage() {
                                         placeholder="e.g. Extract the applicant's full name from the document header."
                                     />
                                 </div>
-                                <div className="flex flex-wrap items-center gap-2 pt-2">
-                                    <div className="flex items-center gap-2">
-                                        <Button onClick={handleTestRule} disabled={editModalTesting}>
-                                            {editModalTesting ? "Testing…" : "Test"}
-                                        </Button>
-                                        <Button variant="outline" onClick={() => setEditModal(null)}>Cancel</Button>
-                                    </div>
-                                    <div className="flex items-center gap-2 ml-auto">
-                                        <label className="text-sm text-[var(--muted)] shrink-0">Simulate:</label>
-                                        <Select
-                                            value={testSimulateMode}
-                                            onChange={(e) => setTestSimulateMode(e.target.value as "positive" | "negative")}
-                                            className="w-36"
-                                            disabled={editModalTesting}
+                            </div>
+                            {/* Column 2: Test output */}
+                            <div className="flex flex-col min-h-0 min-w-0 space-y-4 overflow-y-auto pr-1">
+                                <label className="block text-sm font-medium mb-1">Test output</label>
+                                <div className="flex-1 min-h-[260px] rounded-md border border-[var(--border)] bg-[#282c34] overflow-auto">
+                                    {editModal.testOutput != null ? (
+                                        <SyntaxHighlighter
+                                            language="json"
+                                            style={oneDark}
+                                            customStyle={{
+                                                margin: 0,
+                                                padding: "0.75rem 1rem",
+                                                fontSize: "0.75rem",
+                                                lineHeight: 1.5,
+                                                background: "transparent",
+                                                minHeight: "100%",
+                                            }}
+                                            codeTagProps={{ style: { fontFamily: "ui-monospace, monospace" } }}
+                                            showLineNumbers={false}
+                                            PreTag="div"
                                         >
-                                            <option value="positive">Positive (improved)</option>
-                                            <option value="negative">Negative (regression)</option>
-                                        </Select>
-                                    </div>
+                                            {JSON.stringify(editModal.testOutput, null, 2)}
+                                        </SyntaxHighlighter>
+                                    ) : (
+                                        <p className="text-sm text-gray-400 p-4">Run Test to see extraction output here.</p>
+                                    )}
                                 </div>
                             </div>
-                            {/* Right column: Confidence comparison, JSON viewer, Save */}
+                            {/* Column 3: Confidence comparison + graph */}
                             <div className="flex flex-col min-h-0 min-w-0 space-y-4">
-                                <div>
+                                <div className="shrink-0">
                                     <label className="block text-sm font-medium mb-2">Confidence impact</label>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 p-4 text-center">
@@ -1229,71 +1230,69 @@ export default function ApplicationDetailPage() {
                                             )}
                                         </div>
                                     </div>
-                                    {editModal.testOutput != null && (
+                                </div>
+                                <div className="mt-auto flex-1 min-h-[260px] rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 p-3">
+                                    {editModal.testOutput != null ? (
                                         (() => {
                                             const beforeVal = Number(editModal.previousConfidence) || 0;
                                             const afterVal = Number(editModal.testOutput.confidence) || 0;
                                             const afterColor = afterVal >= beforeVal ? "var(--safe)" : "#ef4444";
                                             return (
-                                                <div className="mt-3 h-[80px] w-full">
-                                                    <ResponsiveContainer width="100%" height="100%">
-                                                        <BarChart
-                                                            data={[
-                                                                { label: "Before", value: beforeVal, fill: "var(--muted)" },
-                                                                { label: "After", value: afterVal, fill: afterColor },
-                                                            ]}
-                                                            margin={{ top: 4, right: 8, left: 8, bottom: 4 }}
-                                                        >
-                                                            <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                                                            <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={24} />
-                                                            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                                                                <Cell fill="var(--muted)" />
-                                                                <Cell fill={afterColor} />
-                                                            </Bar>
-                                                        </BarChart>
-                                                    </ResponsiveContainer>
-                                                </div>
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <BarChart
+                                                        data={[
+                                                            { label: "Before", value: beforeVal, fill: "var(--muted)" },
+                                                            { label: "After", value: afterVal, fill: afterColor },
+                                                        ]}
+                                                        margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                                                    >
+                                                        <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                                                        <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={26} />
+                                                        <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                                                            <Cell fill="var(--muted)" />
+                                                            <Cell fill={afterColor} />
+                                                        </Bar>
+                                                    </BarChart>
+                                                </ResponsiveContainer>
                                             );
                                         })()
+                                    ) : (
+                                        <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
+                                            Run Test to visualize confidence change.
+                                        </div>
                                     )}
-                                </div>
-                                <div className="flex-1 min-h-0 flex flex-col">
-                                    <label className="block text-sm font-medium mb-1">Test output</label>
-                                    <div className="flex-1 min-h-[180px] rounded-md border border-[var(--border)] bg-[#282c34] overflow-auto">
-                                        {editModal.testOutput != null ? (
-                                            <SyntaxHighlighter
-                                                language="json"
-                                                style={oneDark}
-                                                customStyle={{
-                                                    margin: 0,
-                                                    padding: "0.75rem 1rem",
-                                                    fontSize: "0.75rem",
-                                                    lineHeight: 1.5,
-                                                    background: "transparent",
-                                                    minHeight: "100%",
-                                                }}
-                                                codeTagProps={{ style: { fontFamily: "ui-monospace, monospace" } }}
-                                                showLineNumbers={false}
-                                                PreTag="div"
-                                            >
-                                                {JSON.stringify(editModal.testOutput, null, 2)}
-                                            </SyntaxHighlighter>
-                                        ) : (
-                                            <p className="text-sm text-gray-400 p-4">Run Test to see extraction output here.</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="pt-4 flex justify-end shrink-0">
-                                    <Button
-                                        onClick={saveEditRule}
-                                        disabled={editModal.testOutput == null}
-                                        title={editModal.testOutput == null ? "Run Test first to enable Save" : undefined}
-                                    >
-                                        Save (creates new version)
-                                    </Button>
                                 </div>
                             </div>
                         </CardContent>
+                        <CardFooter className="shrink-0 border-t border-[var(--border)] bg-[var(--card)] px-6 py-3 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                                <Button onClick={handleTestRule} disabled={editModalTesting}>
+                                    {editModalTesting ? "Testing…" : "Test"}
+                                </Button>
+                                <label className="text-sm text-[var(--muted)] shrink-0">Simulate:</label>
+                                <Select
+                                    value={testSimulateMode}
+                                    onChange={(e) => setTestSimulateMode(e.target.value as "positive" | "negative")}
+                                    className="w-44"
+                                    disabled={editModalTesting}
+                                >
+                                    <option value="positive">Positive (improved)</option>
+                                    <option value="negative">Negative (regression)</option>
+                                </Select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button variant="outline" onClick={() => setEditModal(null)}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={saveEditRule}
+                                    disabled={editModal.testOutput == null}
+                                    title={editModal.testOutput == null ? "Run Test first to enable Save" : undefined}
+                                >
+                                    Save (creates new version)
+                                </Button>
+                            </div>
+                        </CardFooter>
                     </Card>
                 </div>
             )}
@@ -1375,21 +1374,21 @@ export default function ApplicationDetailPage() {
                                 />
                             )}
                             <div>
-                            <label className="block text-sm font-medium mb-1">Why are you changing this?</label>
-                            <Select
-                                value={valueEditModal.changeReason}
-                                onChange={(e) =>
-                                setValueEditModal((m) =>
-                                    m ? { ...m, changeReason: e.target.value as "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error" } : null
-                                )
-                                }
-                                className="w-full"
-                            >
-                                <option value="">Select reason</option>
-                                <option value="Poor Image Quality">Poor Image Quality</option>
-                                <option value="Graph Missing Data">Graph Missing Data</option>
-                                <option value="Supplier Error">Supplier Error</option>
-                            </Select>
+                                <label className="block text-sm font-medium mb-1">Why are you changing this?</label>
+                                <Select
+                                    value={valueEditModal.changeReason}
+                                    onChange={(e) =>
+                                        setValueEditModal((m) =>
+                                            m ? { ...m, changeReason: e.target.value as "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error" } : null
+                                        )
+                                    }
+                                    className="w-full"
+                                >
+                                    <option value="">Select reason</option>
+                                    <option value="Poor Image Quality">Poor Image Quality</option>
+                                    <option value="Graph Missing Data">Graph Missing Data</option>
+                                    <option value="Supplier Error">Supplier Error</option>
+                                </Select>
                             </div>
                             <div className="flex justify-end gap-2">
                                 <Button variant="outline" onClick={() => setValueEditModal(null)}>
