@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useParams } from "next/navigation";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
@@ -28,6 +28,7 @@ import {
     getFieldDecision,
     getFieldDecisionReason,
     setFieldDecision,
+    DOCUMENT_FIELD_KEYS,
 } from "@/data/extraction-store";
 import type { ExtractedField } from "@/data/mock";
 import { ArrowLeft, FileText, Check, X, Edit, MessageCircle, ChevronDown, ChevronLeft, ChevronRight, RefreshCw, ZoomIn, ZoomOut, Maximize2, Minimize2 } from "lucide-react";
@@ -63,6 +64,335 @@ const MOCK_HIGHLIGHT_BOXES: Array<{ x: number; y: number; w: number; h: number }
     { x: 0.09, y: 0.4, w: 0.75, h: 0.055 },
 ];
 
+type SmartPromptEditorProps = {
+    value: string;
+    onChange: (next: string) => void;
+    placeholder?: string;
+};
+
+function escapeHtml(input: string): string {
+    return input
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+function SmartPromptEditor({ value, onChange, placeholder }: SmartPromptEditorProps) {
+    const editorRef = useRef<HTMLDivElement>(null);
+    const baselineRef = useRef(value ?? "");
+    const isFocusedRef = useRef(false);
+    const [query, setQuery] = useState("");
+    const [trigger, setTrigger] = useState<"/" | "#" | null>(null);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [activeIndex, setActiveIndex] = useState(0);
+    const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+    const pendingCaretRef = useRef<number | null>(null);
+
+    const keywords = useMemo(
+        () => [
+            "NDA",
+            "PM",
+            "505(b)(1)",
+            "Generic Indicator",
+            "Vendor ID",
+            "Catalog Item",
+            "Load TBA",
+            "SVC LVL Catgy",
+            "MCK-GPC",
+            "DSCSA Exempt",
+            "NRDC",
+            "SRC",
+            "Snowflake",
+        ],
+        []
+    );
+
+    const dictionary = useMemo(
+        () =>
+            new Set(
+                [
+                    ...keywords,
+                    "Extract", "extract", "from", "the", "under", "section", "value", "if", "then",
+                    "and", "or", "with", "for", "field", "product", "information", "application",
+                    "type", "generic", "drug", "indicator", "vendor", "name", "id", "table", "always",
+                    "is", "not", "in", "to", "of", "on", "by", "review", "alert", "query", "dynamic",
+                ].map((w) => w.toLowerCase())
+            ),
+        [keywords]
+    );
+
+    const suggestions = useMemo(() => {
+        if (!query.trim()) return keywords.slice(0, 8);
+        const q = query.toLowerCase();
+        return keywords.filter((k) => k.toLowerCase().includes(q)).slice(0, 8);
+    }, [keywords, query]);
+
+    const keywordTokens = useMemo(() => {
+        const set = new Set<string>();
+        for (const phrase of keywords) {
+            for (const token of phrase.split(/\s+/)) {
+                if (token.trim()) set.add(token.toLowerCase());
+            }
+        }
+        return set;
+    }, [keywords]);
+
+    const getWordKey = (token: string) =>
+        token
+            .replace(/^[^A-Za-z0-9(]+|[^A-Za-z0-9)]+$/g, "")
+            .toLowerCase();
+
+    const buildCountMap = (input: string) => {
+        const map = new Map<string, number>();
+        const tokens = input.split(/\s+/).filter(Boolean).map(getWordKey).filter(Boolean);
+        for (const t of tokens) map.set(t, (map.get(t) ?? 0) + 1);
+        return map;
+    };
+
+    const renderDecoratedHtml = useCallback(
+        (plain: string) => {
+            const baselineCounts = buildCountMap(baselineRef.current || "");
+            const remaining = new Map(baselineCounts);
+            const parts = plain.split(/(\s+)/);
+            return parts
+                .map((part) => {
+                    if (/^\s+$/.test(part)) return part.replaceAll("\n", "<br/>");
+                    const safe = escapeHtml(part);
+                    const key = getWordKey(part);
+                    const left = remaining.get(key) ?? 0;
+                    const isChanged = key.length > 0 && left === 0;
+                    if (left > 0) remaining.set(key, left - 1);
+                    const isKeyword = keywordTokens.has(key);
+                    const alpha = /^[a-zA-Z]+$/.test(part);
+                    const isMisspelled = alpha && !dictionary.has(part.toLowerCase());
+
+                    if (isChanged && isKeyword) return `<strong>${safe}</strong>`;
+                    if (isChanged && isMisspelled) {
+                        return `<span style="text-decoration: underline; text-decoration-color: #ef4444; text-decoration-thickness: 2px;">${safe}</span>`;
+                    }
+                    return safe;
+                })
+                .join("");
+        },
+        [dictionary, keywordTokens]
+    );
+
+    const getCaretOffset = useCallback((root: HTMLElement): number => {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return 0;
+        const range = sel.getRangeAt(0).cloneRange();
+        const pre = range.cloneRange();
+        pre.selectNodeContents(root);
+        pre.setEnd(range.endContainer, range.endOffset);
+        return pre.toString().length;
+    }, []);
+
+    const setCaretOffset = useCallback((root: HTMLElement, offset: number) => {
+        const selection = window.getSelection();
+        if (!selection) return;
+        const range = document.createRange();
+        let remaining = offset;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node) {
+            const text = node.textContent ?? "";
+            if (remaining <= text.length) {
+                range.setStart(node, Math.max(0, remaining));
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                return;
+            }
+            remaining -= text.length;
+            node = walker.nextNode();
+        }
+        range.selectNodeContents(root);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }, []);
+
+    const syncFromExternalValue = useCallback(() => {
+        const el = editorRef.current;
+        if (!el) return;
+        const shouldPreserveCaret = isFocusedRef.current;
+        const caret = shouldPreserveCaret ? getCaretOffset(el) : 0;
+        const html = renderDecoratedHtml(value || "");
+        if (el.innerHTML !== html) {
+            el.innerHTML = html || "";
+            if (shouldPreserveCaret) setCaretOffset(el, caret);
+        }
+    }, [getCaretOffset, renderDecoratedHtml, setCaretOffset, value]);
+
+    useEffect(() => {
+        if (!isFocusedRef.current) {
+            baselineRef.current = value || "";
+        }
+        syncFromExternalValue();
+    }, [syncFromExternalValue]);
+
+    const readPlainText = () => {
+        const el = editorRef.current;
+        if (!el) return "";
+        return el.innerText.replace(/\u00A0/g, "");
+    };
+
+    const updateSuggestionState = () => {
+        const sel = window.getSelection();
+        const el = editorRef.current;
+        if (!sel || !sel.rangeCount || !el) return;
+
+        const text = readPlainText();
+        const caret = getCaretOffset(el);
+        const leftText = text.slice(0, Math.max(0, caret));
+        const match = leftText.match(/(^|\s)([\/#])([^\s]*)$/);
+
+        if (!match) {
+            setShowSuggestions(false);
+            setTrigger(null);
+            setQuery("");
+            return;
+        }
+
+        const foundTrigger = match[2] as "/" | "#";
+        const nextQuery = match[3] ?? "";
+        setTrigger(foundTrigger);
+        setQuery(nextQuery);
+        setShowSuggestions(true);
+        setActiveIndex(0);
+
+        const r = sel.getRangeAt(0).cloneRange();
+        r.collapse(true);
+        const rect = r.getBoundingClientRect();
+        const hostRect = el.getBoundingClientRect();
+        setMenuPos({
+            top: rect.bottom - hostRect.top + 6,
+            left: rect.left - hostRect.left,
+        });
+    };
+
+    const applySuggestion = (word: string) => {
+        const el = editorRef.current;
+        const current = readPlainText();
+        const caret = el ? getCaretOffset(el) : current.length;
+        const left = current.slice(0, caret);
+        const match = /(^|\s)[\/#][^\s]*$/.exec(left);
+        if (!match) return;
+        const replaceStart = match.index + (match[1] ? match[1].length : 0);
+        const next = current.slice(0, replaceStart) + word + current.slice(caret);
+        pendingCaretRef.current = replaceStart + word.length;
+
+        onChange(next);
+        setShowSuggestions(false);
+        setTrigger(null);
+        setQuery("");
+
+        requestAnimationFrame(() => {
+            syncFromExternalValue();
+            if (editorRef.current) {
+                editorRef.current.focus();
+                if (pendingCaretRef.current != null) {
+                    setCaretOffset(editorRef.current, pendingCaretRef.current);
+                    pendingCaretRef.current = null;
+                }
+            }
+        });
+    };
+
+    const onInput = () => {
+        const next = readPlainText();
+        onChange(next);
+        requestAnimationFrame(() => {
+            syncFromExternalValue();
+            updateSuggestionState();
+        });
+    };
+
+    const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
+        if (e.key === "/" || e.key === "#") {
+            requestAnimationFrame(updateSuggestionState);
+        }
+        if (!showSuggestions || suggestions.length === 0) return;
+
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setActiveIndex((i) => (i + 1) % suggestions.length);
+            return;
+        }
+        if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActiveIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+            return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            applySuggestion(suggestions[activeIndex]);
+            return;
+        }
+        if (e.key === "Escape") {
+            e.preventDefault();
+            setShowSuggestions(false);
+        }
+    };
+
+    return (
+        <div className="relative">
+            <div
+                ref={editorRef}
+                contentEditable
+                suppressContentEditableWarning
+                spellCheck={false}
+                onFocus={() => {
+                    isFocusedRef.current = true;
+                    baselineRef.current = value || "";
+                }}
+                onBlur={() => {
+                    isFocusedRef.current = false;
+                }}
+                onInput={onInput}
+                onKeyUp={updateSuggestionState}
+                onClick={updateSuggestionState}
+                onKeyDown={onKeyDown}
+                className="w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm min-h-[120px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20"
+                data-placeholder={placeholder ?? ""}
+            />
+            {(!value || value.length === 0) && (
+                <div className="pointer-events-none absolute left-3 top-2 text-sm text-[var(--muted)]">
+                    {placeholder ?? ""}
+                </div>
+            )}
+
+            {showSuggestions && suggestions.length > 0 && (
+                <div
+                    className="absolute z-50 w-64 rounded-md border border-[var(--border)] bg-white shadow-md"
+                    style={{ top: menuPos.top, left: menuPos.left }}
+                >
+                    <div className="px-2 py-1 text-xs text-[var(--muted)] border-b border-[var(--border)]">
+                        {trigger} suggestions
+                    </div>
+                    {suggestions.map((s, idx) => (
+                        <button
+                            key={s}
+                            type="button"
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                applySuggestion(s);
+                            }}
+                            className={`block w-full text-left px-2 py-1 text-sm ${
+                                idx === activeIndex ? "bg-[var(--sidebar)] font-semibold" : "hover:bg-[var(--sidebar)]/60"
+                            }`}
+                        >
+                            <span className={idx === activeIndex ? "font-semibold" : "font-normal"}>{s}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function ApplicationDetailPage() {
     const params = useParams();
     const id = params.id as string;
@@ -80,6 +410,7 @@ export default function ApplicationDetailPage() {
         description: string;
         prompt: string;
         previousConfidence: number;
+        fieldName: string;
         testOutput: { field: string; value: string; confidence: number;[key: string]: unknown } | null;
     } | null>(null);
     const [editModalTesting, setEditModalTesting] = useState(false);
@@ -99,6 +430,22 @@ export default function ApplicationDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const editModalNameInputRef = useRef<HTMLInputElement>(null);
     const pdfViewportRef = useRef<HTMLDivElement>(null);
+    const [hoveredFieldKey, setHoveredFieldKey] = useState<string | null>(null);
+
+    const fieldToBox = Object.fromEntries(
+        fields.slice(0, MOCK_HIGHLIGHT_BOXES.length).map((f, idx) => [f.field, MOCK_HIGHLIGHT_BOXES[idx]])
+    );
+
+    const hoveredField = hoveredFieldKey ? fields.find((f) => f.field === hoveredFieldKey) : null;
+    const hoveredBox = hoveredFieldKey ? fieldToBox[hoveredFieldKey] : null;
+
+    const [valueEditModal, setValueEditModal] = useState<{
+        fieldKey: string;
+        mode: "accept_ocr" | "use_kg" | "manual";
+        selectedKgValue: string;
+        manualValue: string;
+        changeReason: "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error";
+    } | null>(null);
 
     useEffect(() => {
         if (editModal) {
@@ -179,14 +526,19 @@ export default function ApplicationDetailPage() {
             prompt: rule.prompt,
             previousConfidence: Number(f.confidence) || 0,
             testOutput: null,
+            fieldName: f.field,
         });
     };
 
     const saveEditRule = () => {
         if (!editModal) return;
+        if (!DOCUMENT_FIELD_KEYS.includes(editModal.fieldName as (typeof DOCUMENT_FIELD_KEYS)[number])) {
+            setError("Invalid field name. Please choose a valid document field.");
+            return;
+          }
         setError(null);
         try {
-            editRuleFromField(id, editModal.fieldKey, editModal.ruleId, {
+            editRuleFromField(id, editModal.fieldKey, editModal.ruleId, "Divya Shukla", {
                 name: editModal.name,
                 description: editModal.description || undefined,
                 prompt: editModal.prompt,
@@ -213,8 +565,10 @@ export default function ApplicationDetailPage() {
             testOutput: null,
         });
     };
-
-    const handleTestRule = () => {
+    const isEditFieldNameValid =
+      !editModal || DOCUMENT_FIELD_KEYS.includes(editModal.fieldName as (typeof DOCUMENT_FIELD_KEYS)[number]);
+    
+      const handleTestRule = () => {
         if (!editModal) return;
         setEditModalTesting(true);
         setError(null);
@@ -279,6 +633,45 @@ export default function ApplicationDetailPage() {
             if (field) openEditRule(field);
         }
     };
+    const submitValueEdit = () => {
+        if (!valueEditModal) return;
+
+        const { fieldKey, mode, selectedKgValue, manualValue, changeReason } = valueEditModal;
+        const field = fields.find((x) => x.field === fieldKey);
+        if (!field) return;
+
+        let nextValue = field.value;
+        if (mode === "use_kg") nextValue = selectedKgValue || field.value;
+        if (mode === "manual") nextValue = manualValue.trim() || field.value;
+        
+        const isChangingValue =
+        (mode === "use_kg" && (selectedKgValue || field.value) !== field.value) ||
+        (mode === "manual" && (manualValue.trim() || field.value) !== field.value);
+
+        if (isChangingValue && !changeReason) {
+        setError("Please select why you are changing this value.");
+        return;
+        }
+        setFields((prev) =>
+            prev.map((x) => (x.field === fieldKey ? { ...x, value: nextValue } : x))
+        );
+        setValueEditModal(null);
+    };
+    
+    const knowledgeGraphValues: Record<string, string> = {
+        "Catalog Item": "Yes",
+        "Load TBA": "No",
+        "Vendor Name": "Acme Pharma LLC",
+        "Vendor ID": "VND-8821",
+        "DC Table": "table 10 (RX)",
+        "Individual DC": "8106 (NRDC)",
+        "MNC": "None",
+        "PUD (Always 1)": "1",
+        "Generic Indicator": "NDA 505(b)(1)",
+        "MCK-GPC": "1- Reg Generic Drug",
+        "Pri-Ord-Item": "Yes",
+        "SVC LVL Catgy": "G-Generic Item",
+    };
 
     const extractedFieldsPanel = (
         <Card className={isDetailFullscreen ? "min-h-0" : undefined}>
@@ -291,12 +684,13 @@ export default function ApplicationDetailPage() {
             </CardHeader>
             <CardContent className={isDetailFullscreen ? "min-h-0 p-0" : "p-0"}>
                 <Table>
-                    <TableHeader>
-                        <TableRow>
+                    <TableHeader className="sticky top-0 z-20 bg-[var(--background)]">
+                        <TableRow className="hover:bg-transparent">
                             <TableHead className="w-9" aria-label="Expand" />
                             <TableHead>Field</TableHead>
-                            <TableHead>Value</TableHead>
-                            <TableHead>Confidence</TableHead>
+                            <TableHead>Extracted Value</TableHead>
+                            <TableHead>KG</TableHead>
+                            <TableHead>Trust Score</TableHead>
                             <TableHead>Rule applied</TableHead>
                             <TableHead>Actions</TableHead>
                         </TableRow>
@@ -311,8 +705,12 @@ export default function ApplicationDetailPage() {
                                 <React.Fragment key={f.field}>
                                     <TableRow
                                         key={f.field}
-                                        className={isLowConfidence ? "bg-amber-50/70" : undefined}
+                                        className={`${isLowConfidence ? "bg-amber-50/70" : ""} cursor-pointer`}
                                         onClick={() => setExpandedFieldKey((k) => (k === f.field ? null : f.field))}
+                                        onMouseEnter={() => setHoveredFieldKey(f.field)}
+                                        onMouseLeave={() => setHoveredFieldKey((k) => (k === f.field ? null : k))}
+                                        onFocus={() => setHoveredFieldKey(f.field)}
+                                        onBlur={() => setHoveredFieldKey((k) => (k === f.field ? null : k))}
                                         role="button"
                                         tabIndex={0}
                                         onKeyDown={(e) => {
@@ -329,6 +727,7 @@ export default function ApplicationDetailPage() {
                                         </TableCell>
                                         <TableCell className="font-medium">{f.field}</TableCell>
                                         <TableCell>{f.value}</TableCell>
+                                        <TableCell>{knowledgeGraphValues[f.field] ?? "—"}</TableCell>
                                         <TableCell>
                                             <Badge variant={f.confidence >= 90 ? "safe" : f.confidence >= 75 ? "review" : "risk"}>
                                                 {f.confidence}%
@@ -349,20 +748,30 @@ export default function ApplicationDetailPage() {
                                                 </Button>
                                                 <Button
                                                     size="icon"
-                                                    variant={decision === "rejected" ? "destructive" : "outline"}
+                                                    variant="outline"
                                                     className="h-7 w-7"
-                                                    onClick={(e) => handleFieldReject(f.field, e)}
-                                                    aria-label={`Reject ${f.field}`}
-                                                    title="Reject"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const kg = knowledgeGraphValues[f.field] ?? "";
+                                                        setValueEditModal({
+                                                            fieldKey: f.field,
+                                                            mode: "accept_ocr",
+                                                            selectedKgValue: kg,
+                                                            manualValue: f.value,
+                                                            changeReason: "",
+                                                        });
+                                                    }}
+                                                    aria-label={`Edit ${f.field}`}
+                                                    title="Edit value"
                                                 >
-                                                    <X className="h-3.5 w-3.5" />
+                                                    <Edit className="h-3.5 w-3.5" />
                                                 </Button>
                                             </div>
                                         </TableCell>
                                     </TableRow>
                                     {isExpanded && (
                                         <TableRow key={`${f.field}-detail`}>
-                                            <TableCell colSpan={6} className="bg-[var(--sidebar)]/50 p-4">
+                                            <TableCell colSpan={7} className="bg-[var(--sidebar)]/50 p-4">
                                                 <div className="space-y-3 text-sm">
                                                     <div><span className="font-medium">Field:</span> {f.field}</div>
                                                     <div><span className="font-medium">Value:</span> {f.value}</div>
@@ -408,28 +817,27 @@ export default function ApplicationDetailPage() {
                                                             <span className="font-medium">Rejection reason:</span> {decisionReason}
                                                         </div>
                                                     )}
-                                                    {isLowConfidence && (
                                                         <div className="flex flex-wrap gap-2 pt-2">
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={(e) => { e.stopPropagation(); openEditRule(f); }}
-                                                                aria-label={`Edit rule for ${f.field}`}
-                                                            >
-                                                                <Edit className="h-3 w-3 mr-1" /> Edit rule
-                                                            </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={(e) => { e.stopPropagation(); handleReprocess(f.field); }}
-                                                                disabled={reprocessingFieldKey === f.field}
-                                                                aria-label={reprocessingFieldKey === f.field ? `Reprocessing ${f.field}` : `Reprocess ${f.field}`}
-                                                            >
-                                                                <RefreshCw className={`h-3 w-3 mr-1 ${reprocessingFieldKey === f.field ? "animate-spin" : ""}`} />
-                                                                {reprocessingFieldKey === f.field ? "Reprocessing…" : "Reprocess field"}
-                                                            </Button>
-                                                        </div>
-                                                    )}
+                                                        <Button
+                                                          size="sm"
+                                                          variant="outline"
+                                                          onClick={(e) => { e.stopPropagation(); openEditRule(f); }}
+                                                          aria-label={`Edit rule for ${f.field}`}
+                                                        >
+                                                          <Edit className="h-3 w-3 mr-1" /> Edit rule
+                                                        </Button>
+                                                        <Button
+                                                          size="sm"
+                                                          variant="outline"
+                                                          onClick={(e) => { e.stopPropagation(); handleReprocess(f.field); }}
+                                                          disabled={reprocessingFieldKey === f.field}
+                                                          aria-label={reprocessingFieldKey === f.field ? `Reprocessing ${f.field}` : `Reprocess ${f.field}`}
+                                                        >
+                                                          <RefreshCw className={`h-3 w-3 mr-1 ${reprocessingFieldKey === f.field ? "animate-spin" : ""}`} />
+                                                          {reprocessingFieldKey === f.field ? "Reprocessing…" : "Reprocess field"}
+                                                        </Button>
+                                                      </div>
+                                                 
                                                 </div>
                                             </TableCell>
                                         </TableRow>
@@ -599,28 +1007,21 @@ export default function ApplicationDetailPage() {
                                                 renderTextLayer={false}
                                                 renderAnnotationLayer={false}
                                             />
-                                            {confidenceOverlay && pdfPageNumber === 1 && (
+                                            {confidenceOverlay && pdfPageNumber === 1 && hoveredField && hoveredBox && (
                                                 <div className="pointer-events-none absolute inset-0">
-                                                    {fields.slice(0, MOCK_HIGHLIGHT_BOXES.length).map((f, idx) => {
-                                                        const box = MOCK_HIGHLIGHT_BOXES[idx];
-                                                        const isLow = f.confidence < CONFIDENCE_THRESHOLD;
-                                                        const toneClass = isLow
-                                                            ? "border-red-500 bg-red-500/20"
-                                                            : "border-emerald-500 bg-emerald-500/20";
-                                                        return (
-                                                            <div
-                                                                key={`${f.field}-overlay`}
-                                                                className={`absolute rounded-sm border ${toneClass}`}
-                                                                style={{
-                                                                    left: `${box.x * 100}%`,
-                                                                    top: `${box.y * 100}%`,
-                                                                    width: `${box.w * 100}%`,
-                                                                    height: `${box.h * 100}%`,
-                                                                }}
-                                                                title={`${f.field}: ${f.confidence}%`}
-                                                            />
-                                                        );
-                                                    })}
+                                                    <div
+                                                        className={`absolute rounded-sm border ${hoveredField.confidence < CONFIDENCE_THRESHOLD
+                                                                ? "border-red-500 bg-red-500/20"
+                                                                : "border-emerald-500 bg-emerald-500/20"
+                                                            }`}
+                                                        style={{
+                                                            left: `${hoveredBox.x * 100}%`,
+                                                            top: `${hoveredBox.y * 100}%`,
+                                                            width: `${hoveredBox.w * 100}%`,
+                                                            height: `${hoveredBox.h * 100}%`,
+                                                        }}
+                                                        title={`${hoveredField.field}: ${hoveredField.confidence}%`}
+                                                    />
                                                 </div>
                                             )}
                                         </div>
@@ -717,6 +1118,13 @@ export default function ApplicationDetailPage() {
                                 <p className="text-sm text-[var(--muted)]">
                                     Run Test to see extraction output. Save creates a new version and maps it to this field only.
                                 </p>
+                                <p className="text-xs text-[var(--muted)]">
+                                    Last edited by: {getExtractionRule(editModal.ruleId)?.lastEditedBy ?? "—"}{" "}
+                                    on{" "}
+                                    {getExtractionRule(editModal.ruleId)?.lastEditedAt
+                                        ? new Date(getExtractionRule(editModal.ruleId)!.lastEditedAt!).toLocaleString()
+                                        : "—"}
+                                    </p>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Version</label>
                                     <Select
@@ -730,15 +1138,17 @@ export default function ApplicationDetailPage() {
                                     </Select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium mb-1" htmlFor="edit-rule-name">Name</label>
+                                    <label className="block text-sm font-medium mb-1" htmlFor="edit-field-name">Field name</label>
                                     <Input
-                                        id="edit-rule-name"
-                                        ref={editModalNameInputRef}
-                                        value={editModal.name}
-                                        onChange={(e) => setEditModal((m) => m ? { ...m, name: e.target.value } : null)}
-                                        className="w-full"
+                                        id="edit-field-name"
+                                        value={editModal.fieldName}
+                                        onChange={(e) => setEditModal((m) => m ? { ...m, fieldName: e.target.value } : null)}
+                                        className={isEditFieldNameValid ? "w-full" : "w-full border-red-500 ring-1 ring-red-500"}
                                     />
-                                </div>
+                                    {!isEditFieldNameValid && (
+                                        <p className="mt-1 text-xs text-red-600">Field name is invalid.</p>
+                                    )}
+                                    </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Description (optional)</label>
                                     <Input
@@ -749,11 +1159,9 @@ export default function ApplicationDetailPage() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Prompt</label>
-                                    <textarea
+                                    <SmartPromptEditor
                                         value={editModal.prompt}
-                                        onChange={(e) => setEditModal((m) => m ? { ...m, prompt: e.target.value } : null)}
-                                        rows={6}
-                                        className="flex w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm min-h-[120px] resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20"
+                                        onChange={(next) => setEditModal((m) => (m ? { ...m, prompt: next } : null))}
                                         placeholder="e.g. Extract the applicant's full name from the document header."
                                     />
                                 </div>
@@ -889,7 +1297,110 @@ export default function ApplicationDetailPage() {
                     </Card>
                 </div>
             )}
+            {valueEditModal && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="value-edit-title"
+                    onClick={() => setValueEditModal(null)}
+                >
+                    <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+                        <CardHeader>
+                            <CardTitle id="value-edit-title">Edit field value</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <p className="text-sm text-[var(--muted)]">
+                                Field: <span className="font-medium">{valueEditModal.fieldKey}</span>
+                            </p>
 
+                            <label className="flex items-center gap-2 text-sm">
+                                <input
+                                    type="radio"
+                                    checked={valueEditModal.mode === "accept_ocr"}
+                                    onChange={() =>
+                                        setValueEditModal((m) => (m ? { ...m, mode: "accept_ocr" } : null))
+                                    }
+                                />
+                                Accept OCR value
+                            </label>
+
+                            <label className="flex items-center gap-2 text-sm">
+                                <input
+                                    type="radio"
+                                    checked={valueEditModal.mode === "use_kg"}
+                                    onChange={() =>
+                                        setValueEditModal((m) => (m ? { ...m, mode: "use_kg" } : null))
+                                    }
+                                />
+                                Use Knowledge Graph value
+                            </label>
+
+                            {valueEditModal.mode === "use_kg" && (
+                                <Select
+                                    value={valueEditModal.selectedKgValue}
+                                    onChange={(e) =>
+                                        setValueEditModal((m) =>
+                                            m ? { ...m, selectedKgValue: e.target.value } : null
+                                        )
+                                    }
+                                    className="w-full"
+                                >
+                                    <option value={knowledgeGraphValues[valueEditModal.fieldKey] ?? ""}>
+                                        {knowledgeGraphValues[valueEditModal.fieldKey] ?? "No suggestion"}
+                                    </option>
+                                </Select>
+                            )}
+
+                            <label className="flex items-center gap-2 text-sm">
+                                <input
+                                    type="radio"
+                                    checked={valueEditModal.mode === "manual"}
+                                    onChange={() =>
+                                        setValueEditModal((m) => (m ? { ...m, mode: "manual" } : null))
+                                    }
+                                />
+                                Manually add value
+                            </label>
+
+                            {valueEditModal.mode === "manual" && (
+                                <Input
+                                    value={valueEditModal.manualValue}
+                                    onChange={(e) =>
+                                        setValueEditModal((m) =>
+                                            m ? { ...m, manualValue: e.target.value } : null
+                                        )
+                                    }
+                                    placeholder="Enter value"
+                                />
+                            )}
+                            <div>
+                            <label className="block text-sm font-medium mb-1">Why are you changing this?</label>
+                            <Select
+                                value={valueEditModal.changeReason}
+                                onChange={(e) =>
+                                setValueEditModal((m) =>
+                                    m ? { ...m, changeReason: e.target.value as "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error" } : null
+                                )
+                                }
+                                className="w-full"
+                            >
+                                <option value="">Select reason</option>
+                                <option value="Poor Image Quality">Poor Image Quality</option>
+                                <option value="Graph Missing Data">Graph Missing Data</option>
+                                <option value="Supplier Error">Supplier Error</option>
+                            </Select>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <Button variant="outline" onClick={() => setValueEditModal(null)}>
+                                    Cancel
+                                </Button>
+                                <Button onClick={submitValueEdit}>Save</Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
             {rejectModal && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"

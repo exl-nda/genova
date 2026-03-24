@@ -227,6 +227,8 @@ export interface ExtractionRule {
   prompt: string; // natural language prompt for extraction
   version: string; // e.g. "1.0", "1.1"
   lastModified: string;
+  lastEditedBy?: string;
+  lastEditedAt?: string;
 }
 
 export interface RuleFieldMapping {
@@ -259,6 +261,8 @@ export const mockExtractionRules: ExtractionRule[] = [
     prompt: "Data is extracted from Snowflake using the provided query. Dynamic filters are added to the query based on data obtained from HDA—for example, DSCSA Exempt mapped to Keyword 4, Temperature Range mapped to Keyword 2, and Controlled Substance mapped to Keyword 3. Additionally, the first part of the vendor name is used as a dynamic input in the query to retrieve the required results. An alert is configured to be sent for PM review when multiple rows are returned, including all rows fetched from Snowflake, as suggested.",
     version: V,
     lastModified: LM,
+    lastEditedBy: "System",
+    lastEditedAt: new Date().toISOString(),
   },
   { id: ruleVersionedId("ER5", V), ruleBaseId: "ER5", name: "DC Table", categoryId: CAT, prompt: "Static/Always 'table 10 (RX)'", version: V, lastModified: LM },
   {
