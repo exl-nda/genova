@@ -129,7 +129,7 @@ export function createExtractionRule(data: {
 /** Create a new version of an existing rule (used when editing from application detail). */
 export function createNewRuleVersion(
     ruleBaseId: string,
-    data: Partial<Pick<ExtractionRule, "name" | "description" | "prompt">>
+    data: Partial<Pick<ExtractionRule, "name" | "description" | "prompt" | "lastEditedBy" | "lastEditedAt">>
 ): ExtractionRule {
     const existing = extractionRules.find((r) => r.ruleBaseId === ruleBaseId);
     if (!existing) throw new Error("Rule not found");
@@ -144,6 +144,8 @@ export function createNewRuleVersion(
         prompt: data.prompt ?? existing.prompt,
         version,
         lastModified: new Date().toISOString().slice(0, 10),
+        lastEditedBy: data.lastEditedBy ?? "system",
+        lastEditedAt: data.lastEditedAt ?? new Date().toISOString(),
     };
     extractionRules.push(rule);
     return rule;
@@ -282,6 +284,7 @@ export function editRuleFromField(
     applicationId: string,
     fieldKey: string,
     currentRuleId: string,
+    editedBy: string,
     edits: Partial<Pick<ExtractionRule, "name" | "description" | "prompt">>
 ): { newRule: ExtractionRule } {
     const current = getExtractionRule(currentRuleId);
@@ -290,6 +293,8 @@ export function editRuleFromField(
         name: edits.name ?? current.name,
         description: edits.description ?? current.description,
         prompt: edits.prompt ?? current.prompt,
+        lastEditedBy: editedBy,
+        lastEditedAt: new Date().toISOString(),
     });
     setMapping(applicationId, fieldKey, newRule.id);
     updateExtractedFieldForApplication(applicationId, fieldKey, {
