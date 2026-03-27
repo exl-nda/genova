@@ -225,6 +225,7 @@ export interface ExtractionRule {
   categoryId: string;
   description?: string;
   prompt: string; // natural language prompt for extraction
+  specialInstruction?: string;
   version: string; // e.g. "1.0", "1.1"
   lastModified: string;
   lastEditedBy?: string;

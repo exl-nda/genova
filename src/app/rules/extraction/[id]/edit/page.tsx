@@ -358,7 +358,8 @@ export default function EditExtractionRulePage() {
   const [categoryId, setCategoryId] = useState("");
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [examples, setExamples] = useState<string[]>([""]);
+  const [example, setExample] = useState("");
+  const [specialInstruction, setSpecialInstruction] = useState("");
 
   // Initialize selected version from query or first version
   useEffect(() => {
@@ -377,7 +378,8 @@ export default function EditExtractionRulePage() {
       setCategoryId(selectedRule.categoryId);
       setDescription(selectedRule.description ?? "");
       setPrompt(selectedRule.prompt);
-      setExamples([""]);
+      setExample("");
+      setSpecialInstruction(selectedRule.specialInstruction ?? "");
     }
   }, [selectedRule]);
 
@@ -388,6 +390,7 @@ export default function EditExtractionRulePage() {
       categoryId,
       description: description.trim() || undefined,
       prompt: prompt.trim() || "—",
+      specialInstruction: specialInstruction.trim() || undefined,
     });
     router.push("/rules");
   };
@@ -397,12 +400,14 @@ export default function EditExtractionRulePage() {
       name: name.trim() || selectedRule?.name,
       description: (description.trim() || selectedRule?.description) || undefined,
       prompt: (prompt.trim() || selectedRule?.prompt) || "—",
+      specialInstruction: (specialInstruction.trim() || selectedRule?.specialInstruction) || undefined,
     });
     setSelectedVersionId(newRule.id);
     setName(newRule.name);
     setCategoryId(newRule.categoryId);
     setDescription(newRule.description ?? "");
     setPrompt(newRule.prompt);
+    setSpecialInstruction(newRule.specialInstruction ?? "");
   };
 
   if (!ruleBaseId || ruleBaseId.includes("-v") || versions.length === 0) {
@@ -487,38 +492,20 @@ export default function EditExtractionRulePage() {
             />
           </div>
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium">Examples</label>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setExamples((prev) => [...prev, ""])}
-              >
-                Add example
-              </Button>
-            </div>
-            {examples.map((example, idx) => (
-              <div key={`example-${idx}`} className="flex items-center gap-2">
-                <Input
-                  value={example}
-                  onChange={(e) =>
-                    setExamples((prev) => prev.map((x, i) => (i === idx ? e.target.value : x)))
-                  }
-                  placeholder={`Example ${idx + 1}`}
-                />
-                {examples.length > 1 && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setExamples((prev) => prev.filter((_, i) => i !== idx))}
-                  >
-                    Remove
-                  </Button>
-                )}
-              </div>
-            ))}
+            <label className="block text-sm font-medium">Example</label>
+            <Input
+              value={example}
+              onChange={(e) => setExample(e.target.value)}
+              placeholder="Example"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium">Special instruction</label>
+            <Input
+              value={specialInstruction}
+              onChange={(e) => setSpecialInstruction(e.target.value)}
+              placeholder="Any special instruction for extraction"
+            />
           </div>
           <div className="flex gap-2 pt-2">
             <Button onClick={handleSave} disabled={!name.trim() || !categoryId}>
