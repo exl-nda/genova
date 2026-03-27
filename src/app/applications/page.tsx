@@ -35,23 +35,24 @@ function ApplicationsContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const statusFilter = searchParams.get("status") ?? "all";
+    const [search, setSearch] = useState("");
     const [confidenceMin, setConfidenceMin] = useState(0);
     const [confidenceMax, setConfidenceMax] = useState(100);
-    const [riskMin, setRiskMin] = useState(0);
-    const [riskMax, setRiskMax] = useState(100);
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
-    const [modelVersion, setModelVersion] = useState("all");
 
     const filtered = useMemo(() => {
         return mockApplications.filter((app) => {
             if (statusFilter !== "all" && app.decisionStatus !== statusFilter) return false;
             if (app.confidence < confidenceMin || app.confidence > confidenceMax) return false;
-            if (app.riskScore < riskMin || app.riskScore > riskMax) return false;
-            if (modelVersion !== "all" && app.source !== modelVersion) return false;
+            if (search.trim()) {
+                const q = search.trim().toLowerCase();
+                const haystack = `${app.id} ${app.supplier} ${app.applicantName} ${app.source}`.toLowerCase();
+                if (!haystack.includes(q)) return false;
+            }
             return true;
         });
-    }, [statusFilter, confidenceMin, confidenceMax, riskMin, riskMax, modelVersion]);
+    }, [statusFilter, confidenceMin, confidenceMax, search]);
 
     return (
         <div className="space-y-6">
@@ -87,14 +88,6 @@ function ApplicationsContent() {
                             </div>
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Risk Score</label>
-                            <div className="flex gap-2 items-center">
-                                <Input type="number" min={0} max={100} value={riskMin} onChange={(e) => setRiskMin(Number(e.target.value) || 0)} className="w-20" />
-                                <span className="text-[var(--muted)]">–</span>
-                                <Input type="number" min={0} max={100} value={riskMax} onChange={(e) => setRiskMax(Number(e.target.value) || 100)} className="w-20" />
-                            </div>
-                        </div>
-                        <div>
                             <label className="text-xs font-medium text-[var(--muted)]">Date From</label>
                             <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
                         </div>
@@ -103,12 +96,12 @@ function ApplicationsContent() {
                             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Model Version</label>
-                            <Select value={modelVersion} onChange={(e) => setModelVersion(e.target.value)}>
-                                <option value="all">All</option>
-                                <option value="Upload">Upload</option>
-                                <option value="API">API</option>
-                            </Select>
+                            <label className="text-xs font-medium text-[var(--muted)]">Search</label>
+                            <Input
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="NDC, supplier, applicant..."
+                            />
                         </div>
                     </div>
                 </CardContent>
