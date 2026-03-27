@@ -358,6 +358,7 @@ export default function EditExtractionRulePage() {
   const [categoryId, setCategoryId] = useState("");
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [examples, setExamples] = useState<string[]>([""]);
 
   // Initialize selected version from query or first version
   useEffect(() => {
@@ -376,6 +377,7 @@ export default function EditExtractionRulePage() {
       setCategoryId(selectedRule.categoryId);
       setDescription(selectedRule.description ?? "");
       setPrompt(selectedRule.prompt);
+      setExamples([""]);
     }
   }, [selectedRule]);
 
@@ -483,6 +485,40 @@ export default function EditExtractionRulePage() {
               onChange={setPrompt}
               placeholder="e.g. Extract the applicant's full name from the document header."
             />
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium">Examples</label>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setExamples((prev) => [...prev, ""])}
+              >
+                Add example
+              </Button>
+            </div>
+            {examples.map((example, idx) => (
+              <div key={`example-${idx}`} className="flex items-center gap-2">
+                <Input
+                  value={example}
+                  onChange={(e) =>
+                    setExamples((prev) => prev.map((x, i) => (i === idx ? e.target.value : x)))
+                  }
+                  placeholder={`Example ${idx + 1}`}
+                />
+                {examples.length > 1 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setExamples((prev) => prev.filter((_, i) => i !== idx))}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+            ))}
           </div>
           <div className="flex gap-2 pt-2">
             <Button onClick={handleSave} disabled={!name.trim() || !categoryId}>

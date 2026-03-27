@@ -21,6 +21,7 @@ let extractionRules: ExtractionRule[] = [...initialRules];
 let mappings: RuleFieldMapping[] = [...mockRuleFieldMappings];
 let extractedFieldsByApp: Record<string, ExtractedField[]> = buildInitialExtractedFieldsByApp();
 let defaultFieldRuleIds: Record<string, string> = { ...initialDefaultFieldRuleIds };
+let documentFieldKeys: string[] = [...DOCUMENT_FIELD_KEYS];
 
 function ensureDefaultMappings() {
     const ruleById = Object.fromEntries(extractionRules.map((r) => [r.id, r]));
@@ -36,6 +37,38 @@ function ensureDefaultMappings() {
 ensureDefaultMappings();
 
 export { DOCUMENT_FIELD_KEYS };
+
+export function listDocumentFieldKeys(): string[] {
+    return [...documentFieldKeys];
+}
+
+export function addDocumentFieldKey(fieldKey: string): void {
+    const trimmed = fieldKey.trim();
+    if (!trimmed) return;
+    if (documentFieldKeys.includes(trimmed)) return;
+    documentFieldKeys.unshift(trimmed);
+}
+
+export function renameDocumentFieldKey(oldKey: string, newKey: string): void {
+    const from = oldKey.trim();
+    const to = newKey.trim();
+    if (!from || !to || from === to) return;
+    if (documentFieldKeys.includes(to)) return;
+    const idx = documentFieldKeys.findIndex((k) => k === from);
+    if (idx === -1) return;
+    documentFieldKeys[idx] = to;
+    if (defaultFieldRuleIds[from] != null) {
+        defaultFieldRuleIds[to] = defaultFieldRuleIds[from];
+        delete defaultFieldRuleIds[from];
+    }
+}
+
+export function deleteDocumentFieldKey(fieldKey: string): void {
+    const trimmed = fieldKey.trim();
+    if (!trimmed) return;
+    documentFieldKeys = documentFieldKeys.filter((k) => k !== trimmed);
+    delete defaultFieldRuleIds[trimmed];
+}
 
 // --- Categories ---
 export function listCategories(): RuleCategory[] {
@@ -231,6 +264,10 @@ export function getDefaultMapping(fieldKey: string): string | undefined {
 /** Set default rule for a document field. Affects new applications and any app without an override. */
 export function setDefaultMapping(fieldKey: string, ruleId: string): void {
     defaultFieldRuleIds[fieldKey] = ruleId;
+}
+
+export function clearDefaultMapping(fieldKey: string): void {
+    delete defaultFieldRuleIds[fieldKey];
 }
 
 export function setMapping(applicationId: string, fieldKey: string, ruleId: string): void {
