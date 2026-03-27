@@ -141,6 +141,7 @@ export function createExtractionRule(data: {
     categoryId: string;
     description?: string;
     prompt: string;
+    specialInstruction?: string;
 }): ExtractionRule {
     const ruleBaseId = nextRuleBaseId();
     const version = "1.0";
@@ -152,6 +153,7 @@ export function createExtractionRule(data: {
         categoryId: data.categoryId,
         description: data.description,
         prompt: data.prompt,
+        specialInstruction: data.specialInstruction,
         version,
         lastModified: new Date().toISOString().slice(0, 10),
     };
@@ -162,7 +164,7 @@ export function createExtractionRule(data: {
 /** Create a new version of an existing rule (used when editing from application detail). */
 export function createNewRuleVersion(
     ruleBaseId: string,
-    data: Partial<Pick<ExtractionRule, "name" | "description" | "prompt" | "lastEditedBy" | "lastEditedAt">>
+    data: Partial<Pick<ExtractionRule, "name" | "description" | "prompt" | "specialInstruction" | "lastEditedBy" | "lastEditedAt">>
 ): ExtractionRule {
     const existing = extractionRules.find((r) => r.ruleBaseId === ruleBaseId);
     if (!existing) throw new Error("Rule not found");
@@ -175,6 +177,7 @@ export function createNewRuleVersion(
         categoryId: existing.categoryId,
         description: data.description ?? existing.description,
         prompt: data.prompt ?? existing.prompt,
+        specialInstruction: data.specialInstruction ?? existing.specialInstruction,
         version,
         lastModified: new Date().toISOString().slice(0, 10),
         lastEditedBy: data.lastEditedBy ?? "system",
@@ -186,7 +189,7 @@ export function createNewRuleVersion(
 
 export function updateExtractionRule(
     id: string,
-    data: Partial<Pick<ExtractionRule, "name" | "categoryId" | "description" | "prompt">>
+    data: Partial<Pick<ExtractionRule, "name" | "categoryId" | "description" | "prompt" | "specialInstruction">>
 ): ExtractionRule | undefined {
     const i = extractionRules.findIndex((r) => r.id === id);
     if (i === -1) return undefined;
