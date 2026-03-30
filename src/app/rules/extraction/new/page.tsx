@@ -18,7 +18,6 @@ export default function NewExtractionRulePage() {
   const [example, setExample] = useState("");
   const [specialInstruction, setSpecialInstruction] = useState("");
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [testModalOpen, setTestModalOpen] = useState(false);
   const [createdVersionId, setCreatedVersionId] = useState<string | null>(null);
 
   const categoryName = useMemo(
@@ -106,8 +105,6 @@ export default function NewExtractionRulePage() {
                 Cancel
               </Link>
             }
-            testModalOpen={testModalOpen}
-            setTestModalOpen={setTestModalOpen}
           />
         </CardContent>
       </Card>

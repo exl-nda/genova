@@ -4,9 +4,9 @@ import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } fro
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RuleCategory } from "@/data/mock";
+import { HdaPdfViewer, MOCK_HDA_OPTIONS } from "./hda-pdf-viewer";
 
 type SmartPromptEditorProps = {
   value: string;
@@ -328,21 +328,6 @@ function SmartPromptEditor({ value, onChange, placeholder }: SmartPromptEditorPr
   );
 }
 
-const MOCK_HDA_SAMPLE = `PRODUCT INFORMATION
-Company Name: Acme Pharma LLC
-Vendor ID: VND-8821
-Catalog Item: Yes
-Load TBA: No
-
-APPLICATION DETAILS
-Application Type: NDA
-505(b) Type: 505(b)(1)
-FOR GENERIC DRUG PRODUCTS — AG: Not checked
-
-DSCSA Exempt: Keyword 4
-Temperature Range: Keyword 2
-Controlled Substance: Keyword 3`;
-
 export type ExtractionRuleFormFieldsProps = {
   categories: RuleCategory[];
   name: string;
@@ -365,8 +350,6 @@ export type ExtractionRuleFormFieldsProps = {
   onSubmit: () => void;
   submitDisabled: boolean;
   cancelSlot: ReactNode;
-  testModalOpen: boolean;
-  setTestModalOpen: (open: boolean) => void;
 };
 
 export function ExtractionRuleFormFields({
@@ -391,179 +374,206 @@ export function ExtractionRuleFormFields({
   onSubmit,
   submitDisabled,
   cancelSlot,
-  testModalOpen,
-  setTestModalOpen,
 }: ExtractionRuleFormFieldsProps) {
-  useEffect(() => {
-    if (!testModalOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setTestModalOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [testModalOpen, setTestModalOpen]);
+  const [stepIndex, setStepIndex] = useState<0 | 1>(0);
+  const [selectedHdaId, setSelectedHdaId] = useState<string>(MOCK_HDA_OPTIONS[0]?.id ?? "");
+  const selectedHda = useMemo(() => {
+    return MOCK_HDA_OPTIONS.find((o) => o.id === selectedHdaId) ?? MOCK_HDA_OPTIONS[0];
+  }, [selectedHdaId]);
+
+  function RuleLabelPreview() {
+    return (
+      <div className="space-y-2 text-sm">
+        <p>
+          <span className="font-medium">Field name:</span> {name.trim() || "—"}
+        </p>
+        <p>
+          <span className="font-medium">Category:</span> {categoryName || "—"}
+        </p>
+        {description.trim() ? (
+          <p>
+            <span className="font-medium">Description:</span>{" "}
+            <span className="whitespace-pre-wrap">{description.trim()}</span>
+          </p>
+        ) : null}
+        {role.trim() ? (
+          <div>
+            <span className="font-medium">Role:</span>
+            <p className="mt-1 whitespace-pre-wrap text-[var(--muted)]">{role.trim()}</p>
+          </div>
+        ) : null}
+        <div>
+          <span className="font-medium">Guidelines:</span>
+          <p className="mt-1 whitespace-pre-wrap">{prompt.trim() || "—"}</p>
+        </div>
+        {example.trim() ? (
+          <div>
+            <span className="font-medium">Example(s):</span>
+            <p className="mt-1 whitespace-pre-wrap">{example.trim()}</p>
+          </div>
+        ) : null}
+        {specialInstruction.trim() ? (
+          <div>
+            <span className="font-medium">Special instruction:</span>
+            <p className="mt-1 whitespace-pre-wrap">{specialInstruction.trim()}</p>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const stepHeader = (
+    <div className="flex items-center gap-6 text-sm">
+      <div className={`flex items-center gap-2 ${stepIndex === 0 ? "font-semibold text-[var(--foreground)]" : "text-[var(--muted)]"}`}>
+        <span className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/20 px-2 py-0.5 text-xs">1</span>
+        Details
+      </div>
+      <div className={`flex items-center gap-2 ${stepIndex === 1 ? "font-semibold text-[var(--foreground)]" : "text-[var(--muted)]"}`}>
+        <span className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/20 px-2 py-0.5 text-xs">2</span>
+        Test
+      </div>
+    </div>
+  );
 
   return (
     <>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">Name</label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Applicant name from header"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Category</label>
-          <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Description</label>
-          <Input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Short description"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Role</label>
-          <textarea
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            rows={3}
-            placeholder="e.g. You are a data steward in a procurement department. Your job is to extract a field from the HDA for creating item master. Be specific."
-            className={cn(
-              "flex min-h-[72px] w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20 disabled:cursor-not-allowed disabled:opacity-50"
-            )}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Guidelines</label>
-          <SmartPromptEditor
-            value={prompt}
-            onChange={setPrompt}
-            placeholder="e.g. Extract the applicant's full name from the document header."
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Example(s)</label>
-          <Input
-            value={example}
-            onChange={(e) => setExample(e.target.value)}
-            placeholder="Example"
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Special instruction</label>
-          <Input
-            value={specialInstruction}
-            onChange={(e) => setSpecialInstruction(e.target.value)}
-            placeholder="Any special instruction for extraction"
-          />
-        </div>
-        <div className="flex flex-wrap gap-2 pt-2">
-          <Button type="button" onClick={onSubmit} disabled={submitDisabled}>
-            Submit
-          </Button>
-          {cancelSlot}
-        </div>
+      {stepHeader}
 
-        {hasSubmitted && (
-          <div className="space-y-3 pt-4 border-t border-[var(--border)]">
-            <div>
-              <label className="block text-sm font-medium mb-1">Updated rule</label>
-              <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/40 px-3 py-2 text-sm whitespace-pre-wrap min-h-[80px] text-[var(--foreground)]">
-                {updatedRuleText || "—"}
+      <div className="mt-4">
+        {stepIndex === 0 ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 items-start">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Name</label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Applicant name from header" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Category</label>
+                <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Description</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  placeholder="Short description"
+                  className={cn(
+                    "flex min-h-[72px] w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  )}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Role</label>
+                <textarea
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. You are a data steward in a procurement department. Your job is to extract a field from the HDA for creating item master. Be specific."
+                  className={cn(
+                    "flex min-h-[72px] w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  )}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Guidelines</label>
+                <SmartPromptEditor value={prompt} onChange={setPrompt} placeholder="e.g. Extract the applicant's full name from the document header." />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium">Example(s)</label>
+                <textarea
+                  value={example}
+                  onChange={(e) => setExample(e.target.value)}
+                  rows={3}
+                  placeholder="Example"
+                  className={cn(
+                    "flex min-h-[72px] w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  )}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium">Special instruction</label>
+                <textarea
+                  value={specialInstruction}
+                  onChange={(e) => setSpecialInstruction(e.target.value)}
+                  rows={3}
+                  placeholder="Any special instruction for extraction"
+                  className={cn(
+                    "flex min-h-[72px] w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  )}
+                />
+              </div>
+
+            </div>
+
+            <div className="lg:sticky lg:top-6 self-start space-y-3">
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/20 p-4 overflow-hidden">
+                <h3 className="text-sm font-semibold mb-2 text-[var(--muted)]">Live label preview</h3>
+                <RuleLabelPreview />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    onSubmit();
+                    setStepIndex(1);
+                  }}
+                  disabled={submitDisabled}
+                >
+                  Move to next step to test it
+                </Button>
+                {cancelSlot}
               </div>
             </div>
-            <Button type="button" variant="secondary" onClick={() => setTestModalOpen(true)}>
-              Test your rule
-            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 items-start">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/20 p-3 lg:sticky lg:top-6 self-start">
+              <HdaPdfViewer selectedId={selectedHdaId} onChange={setSelectedHdaId} />
+            </div>
+
+            <div className="lg:sticky lg:top-6 self-start space-y-3">
+              <div className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/20 p-4 overflow-hidden">
+                <div>
+                  <h3 className="text-sm font-semibold mb-2 text-[var(--muted)]">
+                    HDA content ({selectedHda?.label ?? "—"})
+                  </h3>
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-[var(--foreground)] leading-relaxed rounded-md border border-[var(--border)] bg-white p-3">
+                    {selectedHda?.hdaText ?? "—"}
+                  </pre>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-2 text-[var(--muted)]">Label</h3>
+                  <div className="rounded-lg border border-[var(--border)] bg-white p-3">
+                    <RuleLabelPreview />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Button type="button" variant="outline" onClick={() => setStepIndex(0)}>
+                  Back to details
+                </Button>
+                {cancelSlot}
+              </div>
+            </div>
           </div>
         )}
       </div>
-
-      {testModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="test-rule-title"
-          onClick={() => setTestModalOpen(false)}
-        >
-          <div
-            className="relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-lg border border-[var(--border)] bg-white shadow-lg flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-              <h2 id="test-rule-title" className="text-lg font-semibold">
-                Test your rule
-              </h2>
-              <button
-                type="button"
-                onClick={() => setTestModalOpen(false)}
-                className="rounded-md p-1.5 hover:bg-[var(--sidebar)]"
-                aria-label="Close"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-0 min-h-0 flex-1 overflow-hidden">
-              <div className="border-b md:border-b-0 md:border-r border-[var(--border)] p-4 overflow-auto max-h-[60vh]">
-                <h3 className="text-sm font-semibold mb-2 text-[var(--muted)]">HDA content</h3>
-                <pre className="text-xs font-mono whitespace-pre-wrap text-[var(--foreground)] leading-relaxed">
-                  {MOCK_HDA_SAMPLE}
-                </pre>
-              </div>
-              <div className="p-4 overflow-auto max-h-[60vh]">
-                <h3 className="text-sm font-semibold mb-2 text-[var(--muted)]">Label</h3>
-                <div className="space-y-2 text-sm">
-                  <p>
-                    <span className="font-medium">Field name:</span> {name.trim() || "—"}
-                  </p>
-                  <p>
-                    <span className="font-medium">Category:</span> {categoryName || "—"}
-                  </p>
-                  {description.trim() ? (
-                    <p>
-                      <span className="font-medium">Description:</span> {description.trim()}
-                    </p>
-                  ) : null}
-                  {role.trim() ? (
-                    <div>
-                      <span className="font-medium">Role:</span>
-                      <p className="mt-1 whitespace-pre-wrap text-[var(--muted)]">{role.trim()}</p>
-                    </div>
-                  ) : null}
-                  <div>
-                    <span className="font-medium">Guidelines:</span>
-                    <p className="mt-1 whitespace-pre-wrap">{prompt.trim() || "—"}</p>
-                  </div>
-                  {example.trim() ? (
-                    <div>
-                      <span className="font-medium">Example(s):</span>
-                      <p className="mt-1 whitespace-pre-wrap">{example.trim()}</p>
-                    </div>
-                  ) : null}
-                  {specialInstruction.trim() ? (
-                    <div>
-                      <span className="font-medium">Special instruction:</span>
-                      <p className="mt-1 whitespace-pre-wrap">{specialInstruction.trim()}</p>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

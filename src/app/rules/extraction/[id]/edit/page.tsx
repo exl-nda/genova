@@ -42,7 +42,6 @@ export default function EditExtractionRulePage() {
   const [example, setExample] = useState("");
   const [specialInstruction, setSpecialInstruction] = useState("");
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [testModalOpen, setTestModalOpen] = useState(false);
 
   // Initialize selected version from query or first version
   useEffect(() => {
@@ -166,6 +165,7 @@ export default function EditExtractionRulePage() {
         </CardHeader>
         <CardContent>
           <ExtractionRuleFormFields
+            key={selectedVersionId}
             categories={categories}
             name={name}
             setName={setName}
@@ -191,8 +191,6 @@ export default function EditExtractionRulePage() {
                 Cancel
               </Link>
             }
-            testModalOpen={testModalOpen}
-            setTestModalOpen={setTestModalOpen}
           />
         </CardContent>
       </Card>
