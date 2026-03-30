@@ -140,6 +140,7 @@ export function createExtractionRule(data: {
     name: string;
     categoryId: string;
     description?: string;
+    role?: string;
     prompt: string;
     specialInstruction?: string;
 }): ExtractionRule {
@@ -152,6 +153,7 @@ export function createExtractionRule(data: {
         name: data.name,
         categoryId: data.categoryId,
         description: data.description,
+        role: data.role,
         prompt: data.prompt,
         specialInstruction: data.specialInstruction,
         version,
@@ -164,7 +166,7 @@ export function createExtractionRule(data: {
 /** Create a new version of an existing rule (used when editing from application detail). */
 export function createNewRuleVersion(
     ruleBaseId: string,
-    data: Partial<Pick<ExtractionRule, "name" | "description" | "prompt" | "specialInstruction" | "lastEditedBy" | "lastEditedAt">>
+    data: Partial<Pick<ExtractionRule, "name" | "description" | "role" | "prompt" | "specialInstruction" | "lastEditedBy" | "lastEditedAt">>
 ): ExtractionRule {
     const existing = extractionRules.find((r) => r.ruleBaseId === ruleBaseId);
     if (!existing) throw new Error("Rule not found");
@@ -176,6 +178,7 @@ export function createNewRuleVersion(
         name: data.name ?? existing.name,
         categoryId: existing.categoryId,
         description: data.description ?? existing.description,
+        role: data.role ?? existing.role,
         prompt: data.prompt ?? existing.prompt,
         specialInstruction: data.specialInstruction ?? existing.specialInstruction,
         version,
@@ -189,7 +192,7 @@ export function createNewRuleVersion(
 
 export function updateExtractionRule(
     id: string,
-    data: Partial<Pick<ExtractionRule, "name" | "categoryId" | "description" | "prompt" | "specialInstruction">>
+    data: Partial<Pick<ExtractionRule, "name" | "categoryId" | "description" | "role" | "prompt" | "specialInstruction">>
 ): ExtractionRule | undefined {
     const i = extractionRules.findIndex((r) => r.id === id);
     if (i === -1) return undefined;
