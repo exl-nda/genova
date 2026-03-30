@@ -224,6 +224,8 @@ export interface ExtractionRule {
   name: string;
   categoryId: string;
   description?: string;
+  /** Persona / role context for the extraction prompt */
+  role?: string;
   prompt: string; // natural language prompt for extraction
   specialInstruction?: string;
   version: string; // e.g. "1.0", "1.1"

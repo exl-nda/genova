@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ArrowLeft, Plus } from "lucide-react";
 import {
@@ -15,326 +14,7 @@ import {
   listCategories,
   listVersionsForRule,
 } from "@/data/extraction-store";
-
-type SmartPromptEditorProps = {
-  value: string;
-  onChange: (next: string) => void;
-  placeholder?: string;
-};
-
-function escapeHtml(input: string): string {
-  return input
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function SmartPromptEditor({ value, onChange, placeholder }: SmartPromptEditorProps) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const baselineRef = useRef(value ?? "");
-  const isFocusedRef = useRef(false);
-  const pendingCaretRef = useRef<number | null>(null);
-  const [query, setQuery] = useState("");
-  const [trigger, setTrigger] = useState<"/" | "#" | null>(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
-
-  const keywords = useMemo(
-    () => [
-      "NDA",
-      "PM",
-      "505(b)(1)",
-      "Generic Indicator",
-      "Vendor ID",
-      "Catalog Item",
-      "Load TBA",
-      "SVC LVL Catgy",
-      "MCK-GPC",
-      "DSCSA Exempt",
-      "NRDC",
-      "SRC",
-      "Snowflake",
-    ],
-    []
-  );
-
-  const dictionary = useMemo(
-    () =>
-      new Set(
-        [
-          ...keywords,
-          "Extract", "extract", "from", "the", "under", "section", "value", "if", "then",
-          "and", "or", "with", "for", "field", "product", "information", "application",
-          "type", "generic", "drug", "indicator", "vendor", "name", "id", "table", "always",
-          "is", "not", "in", "to", "of", "on", "by", "review", "alert", "query", "dynamic",
-        ].map((w) => w.toLowerCase())
-      ),
-    [keywords]
-  );
-
-  const suggestions = useMemo(() => {
-    if (!query.trim()) return keywords.slice(0, 8);
-    const q = query.toLowerCase();
-    return keywords.filter((k) => k.toLowerCase().includes(q)).slice(0, 8);
-  }, [keywords, query]);
-
-  const keywordTokens = useMemo(() => {
-    const set = new Set<string>();
-    for (const phrase of keywords) {
-      for (const token of phrase.split(/\s+/)) {
-        if (token.trim()) set.add(token.toLowerCase());
-      }
-    }
-    return set;
-  }, [keywords]);
-
-  const getWordKey = (token: string) =>
-    token.replace(/^[^A-Za-z0-9(]+|[^A-Za-z0-9)]+$/g, "").toLowerCase();
-
-  const buildCountMap = (input: string) => {
-    const map = new Map<string, number>();
-    const tokens = input.split(/\s+/).filter(Boolean).map(getWordKey).filter(Boolean);
-    for (const t of tokens) map.set(t, (map.get(t) ?? 0) + 1);
-    return map;
-  };
-
-  const renderDecoratedHtml = useCallback(
-    (plain: string) => {
-      const baselineCounts = buildCountMap(baselineRef.current || "");
-      const remaining = new Map(baselineCounts);
-      const parts = plain.split(/(\s+)/);
-      return parts
-        .map((part) => {
-          if (/^\s+$/.test(part)) return part.replaceAll("\n", "<br/>");
-          const safe = escapeHtml(part);
-          const key = getWordKey(part);
-          const left = remaining.get(key) ?? 0;
-          const isChanged = key.length > 0 && left === 0;
-          if (left > 0) remaining.set(key, left - 1);
-          const isKeyword = keywordTokens.has(key);
-          const alpha = /^[a-zA-Z]+$/.test(part);
-          const isMisspelled = alpha && !dictionary.has(part.toLowerCase());
-
-          if (isChanged && isKeyword) return `<strong>${safe}</strong>`;
-          if (isChanged && isMisspelled) {
-            return `<span style="text-decoration: underline; text-decoration-color: #ef4444; text-decoration-thickness: 2px;">${safe}</span>`;
-          }
-          return safe;
-        })
-        .join("");
-    },
-    [dictionary, keywordTokens]
-  );
-
-  const getCaretOffset = useCallback((root: HTMLElement): number => {
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return 0;
-    const range = sel.getRangeAt(0).cloneRange();
-    const pre = range.cloneRange();
-    pre.selectNodeContents(root);
-    pre.setEnd(range.endContainer, range.endOffset);
-    return pre.toString().length;
-  }, []);
-
-  const setCaretOffset = useCallback((root: HTMLElement, offset: number) => {
-    const selection = window.getSelection();
-    if (!selection) return;
-    const range = document.createRange();
-    let remaining = offset;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let node = walker.nextNode();
-    while (node) {
-      const text = node.textContent ?? "";
-      if (remaining <= text.length) {
-        range.setStart(node, Math.max(0, remaining));
-        range.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        return;
-      }
-      remaining -= text.length;
-      node = walker.nextNode();
-    }
-    range.selectNodeContents(root);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }, []);
-
-  const syncFromExternalValue = useCallback(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    const shouldPreserveCaret = isFocusedRef.current;
-    const caret = shouldPreserveCaret ? getCaretOffset(el) : 0;
-    const html = renderDecoratedHtml(value || "");
-    if (el.innerHTML !== html) {
-      el.innerHTML = html || "";
-      if (shouldPreserveCaret) setCaretOffset(el, caret);
-    }
-  }, [getCaretOffset, renderDecoratedHtml, setCaretOffset, value]);
-
-  useEffect(() => {
-    if (!isFocusedRef.current) baselineRef.current = value || "";
-    syncFromExternalValue();
-  }, [syncFromExternalValue, value]);
-
-  const readPlainText = () => {
-    const el = editorRef.current;
-    if (!el) return "";
-    return el.innerText.replace(/\u00A0/g, "");
-  };
-
-  const updateSuggestionState = () => {
-    const sel = window.getSelection();
-    const el = editorRef.current;
-    if (!sel || !sel.rangeCount || !el) return;
-
-    const text = readPlainText();
-    const caret = getCaretOffset(el);
-    const leftText = text.slice(0, Math.max(0, caret));
-    const match = leftText.match(/(^|\s)([\/#])([^\s]*)$/);
-
-    if (!match) {
-      setShowSuggestions(false);
-      setTrigger(null);
-      setQuery("");
-      return;
-    }
-
-    setTrigger(match[2] as "/" | "#");
-    setQuery(match[3] ?? "");
-    setShowSuggestions(true);
-    setActiveIndex(0);
-
-    const r = sel.getRangeAt(0).cloneRange();
-    r.collapse(true);
-    const rect = r.getBoundingClientRect();
-    const hostRect = el.getBoundingClientRect();
-    setMenuPos({
-      top: rect.bottom - hostRect.top + 6,
-      left: rect.left - hostRect.left,
-    });
-  };
-
-  const applySuggestion = (word: string) => {
-    const el = editorRef.current;
-    const current = readPlainText();
-    const caret = el ? getCaretOffset(el) : current.length;
-    const left = current.slice(0, caret);
-    const match = /(^|\s)[\/#][^\s]*$/.exec(left);
-    if (!match) return;
-    const replaceStart = match.index + (match[1] ? match[1].length : 0);
-    const next = current.slice(0, replaceStart) + word + current.slice(caret);
-    pendingCaretRef.current = replaceStart + word.length;
-
-    onChange(next);
-    setShowSuggestions(false);
-    setTrigger(null);
-    setQuery("");
-
-    requestAnimationFrame(() => {
-      syncFromExternalValue();
-      if (editorRef.current) {
-        editorRef.current.focus();
-        if (pendingCaretRef.current != null) {
-          setCaretOffset(editorRef.current, pendingCaretRef.current);
-          pendingCaretRef.current = null;
-        }
-      }
-    });
-  };
-
-  const onInput = () => {
-    const next = readPlainText();
-    onChange(next);
-    requestAnimationFrame(() => {
-      syncFromExternalValue();
-      updateSuggestionState();
-    });
-  };
-
-  const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
-    if (e.key === "/" || e.key === "#") requestAnimationFrame(updateSuggestionState);
-    if (!showSuggestions || suggestions.length === 0) return;
-
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActiveIndex((i) => (i + 1) % suggestions.length);
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
-      return;
-    }
-    if (e.key === "Enter" || e.key === "Tab") {
-      e.preventDefault();
-      applySuggestion(suggestions[activeIndex]);
-      return;
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setShowSuggestions(false);
-    }
-  };
-
-  return (
-    <div className="relative">
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        spellCheck={false}
-        onFocus={() => {
-          isFocusedRef.current = true;
-          baselineRef.current = value || "";
-        }}
-        onBlur={() => {
-          isFocusedRef.current = false;
-        }}
-        onInput={onInput}
-        onKeyUp={updateSuggestionState}
-        onClick={updateSuggestionState}
-        onKeyDown={onKeyDown}
-        className="w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm min-h-[120px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20"
-      />
-      {(!value || value.length === 0) && (
-        <div className="pointer-events-none absolute left-3 top-2 text-sm text-[var(--muted)]">
-          {placeholder ?? ""}
-        </div>
-      )}
-
-      {showSuggestions && suggestions.length > 0 && (
-        <div
-          className="absolute z-50 w-64 rounded-md border border-[var(--border)] bg-white shadow-md"
-          style={{ top: menuPos.top, left: menuPos.left }}
-        >
-          <div className="px-2 py-1 text-xs text-[var(--muted)] border-b border-[var(--border)]">
-            {trigger} suggestions
-          </div>
-          {suggestions.map((s, idx) => (
-            <button
-              key={s}
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                applySuggestion(s);
-              }}
-              className={`block w-full text-left px-2 py-1 text-sm ${
-                idx === activeIndex ? "bg-[var(--sidebar)] font-semibold" : "hover:bg-[var(--sidebar)]/60"
-              }`}
-            >
-              <span className={idx === activeIndex ? "font-semibold" : "font-normal"}>{s}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+import { ExtractionRuleFormFields } from "../../extraction-rule-form-shared";
 
 export default function EditExtractionRulePage() {
   const router = useRouter();
@@ -357,9 +37,12 @@ export default function EditExtractionRulePage() {
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [description, setDescription] = useState("");
+  const [role, setRole] = useState("");
   const [prompt, setPrompt] = useState("");
   const [example, setExample] = useState("");
   const [specialInstruction, setSpecialInstruction] = useState("");
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [testModalOpen, setTestModalOpen] = useState(false);
 
   // Initialize selected version from query or first version
   useEffect(() => {
@@ -373,32 +56,56 @@ export default function EditExtractionRulePage() {
   // Sync form when selected version changes
   const selectedRule = selectedVersionId ? getExtractionRule(selectedVersionId) : undefined;
   useEffect(() => {
+    setHasSubmitted(false);
+  }, [selectedVersionId]);
+
+  useEffect(() => {
     if (selectedRule) {
       setName(selectedRule.name);
       setCategoryId(selectedRule.categoryId);
       setDescription(selectedRule.description ?? "");
+      setRole(selectedRule.role ?? "");
       setPrompt(selectedRule.prompt);
       setExample("");
       setSpecialInstruction(selectedRule.specialInstruction ?? "");
     }
   }, [selectedRule]);
 
-  const handleSave = () => {
+  const categoryName = useMemo(
+    () => categories.find((c) => c.id === categoryId)?.name ?? "",
+    [categories, categoryId]
+  );
+
+  const updatedRuleText = useMemo(() => {
+    const lines: string[] = [];
+    if (name.trim()) lines.push(`Name: ${name.trim()}`);
+    if (categoryName) lines.push(`Category: ${categoryName}`);
+    if (description.trim()) lines.push(`Description: ${description.trim()}`);
+    if (role.trim()) lines.push(`Role:\n${role.trim()}`);
+    if (prompt.trim()) lines.push(`Guidelines:\n${prompt.trim()}`);
+    if (example.trim()) lines.push(`Example(s):\n${example.trim()}`);
+    if (specialInstruction.trim()) lines.push(`Special instruction:\n${specialInstruction.trim()}`);
+    return lines.join("\n\n");
+  }, [name, categoryName, description, role, prompt, example, specialInstruction]);
+
+  const handleSubmit = () => {
     if (!selectedVersionId || !name.trim() || !categoryId) return;
     updateExtractionRule(selectedVersionId, {
       name: name.trim(),
       categoryId,
       description: description.trim() || undefined,
+      role: role.trim() || undefined,
       prompt: prompt.trim() || "—",
       specialInstruction: specialInstruction.trim() || undefined,
     });
-    router.push("/rules");
+    setHasSubmitted(true);
   };
 
   const handleAddNewVersion = () => {
     const newRule = createNewRuleVersion(ruleBaseId, {
       name: name.trim() || selectedRule?.name,
       description: (description.trim() || selectedRule?.description) || undefined,
+      role: (role.trim() || selectedRule?.role) || undefined,
       prompt: (prompt.trim() || selectedRule?.prompt) || "—",
       specialInstruction: (specialInstruction.trim() || selectedRule?.specialInstruction) || undefined,
     });
@@ -406,6 +113,7 @@ export default function EditExtractionRulePage() {
     setName(newRule.name);
     setCategoryId(newRule.categoryId);
     setDescription(newRule.description ?? "");
+    setRole(newRule.role ?? "");
     setPrompt(newRule.prompt);
     setSpecialInstruction(newRule.specialInstruction ?? "");
   };
@@ -456,65 +164,36 @@ export default function EditExtractionRulePage() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Name</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Applicant name from header"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Category</label>
-            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Description (optional)</label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Short description"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Prompt</label>
-            <SmartPromptEditor
-              value={prompt}
-              onChange={setPrompt}
-              placeholder="e.g. Extract the applicant's full name from the document header."
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">Example</label>
-            <Input
-              value={example}
-              onChange={(e) => setExample(e.target.value)}
-              placeholder="Example"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">Special instruction</label>
-            <Input
-              value={specialInstruction}
-              onChange={(e) => setSpecialInstruction(e.target.value)}
-              placeholder="Any special instruction for extraction"
-            />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <Button onClick={handleSave} disabled={!name.trim() || !categoryId}>
-              Save changes
-            </Button>
-            <Link href="/rules" className={buttonVariants({ variant: "outline" })}>
-              Cancel
-            </Link>
-          </div>
+        <CardContent>
+          <ExtractionRuleFormFields
+            categories={categories}
+            name={name}
+            setName={setName}
+            categoryId={categoryId}
+            setCategoryId={setCategoryId}
+            description={description}
+            setDescription={setDescription}
+            role={role}
+            setRole={setRole}
+            prompt={prompt}
+            setPrompt={setPrompt}
+            example={example}
+            setExample={setExample}
+            specialInstruction={specialInstruction}
+            setSpecialInstruction={setSpecialInstruction}
+            categoryName={categoryName}
+            hasSubmitted={hasSubmitted}
+            updatedRuleText={updatedRuleText}
+            onSubmit={handleSubmit}
+            submitDisabled={!name.trim() || !categoryId}
+            cancelSlot={
+              <Link href="/rules" className={buttonVariants({ variant: "outline" })}>
+                Cancel
+              </Link>
+            }
+            testModalOpen={testModalOpen}
+            setTestModalOpen={setTestModalOpen}
+          />
         </CardContent>
       </Card>
     </div>
