@@ -6,13 +6,16 @@ import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, Pin } from "lucide-react";
 import {
   getExtractionRule,
   updateExtractionRule,
   createNewRuleVersion,
   listCategories,
   listVersionsForRule,
+  publishExtractionRuleVersion,
+  getActiveRuleVersionId,
+  setActiveRuleVersionId,
 } from "@/data/extraction-store";
 import { ExtractionRuleFormFields } from "../../extraction-rule-form-shared";
 
@@ -41,23 +44,24 @@ export default function EditExtractionRulePage() {
   const [prompt, setPrompt] = useState("");
   const [example, setExample] = useState("");
   const [specialInstruction, setSpecialInstruction] = useState("");
-  const [hasSubmitted, setHasSubmitted] = useState(false);
 
-  // Initialize selected version from query or first version
+  // Initialize / sync from URL query; otherwise keep user selection; default active or latest.
   useEffect(() => {
-    if (versions.length === 0) return;
-    const fromQuery = versionFromQuery
-      ? versions.find((v) => v.version === versionFromQuery)?.id
-      : undefined;
-    setSelectedVersionId(fromQuery ?? versions[0]!.id);
-  }, [ruleBaseId, versionFromQuery, versions]);
+    const v = listVersionsForRule(ruleBaseId);
+    if (v.length === 0) return;
+    setSelectedVersionId((current) => {
+      const fromQuery = versionFromQuery ? v.find((x) => x.version === versionFromQuery)?.id : undefined;
+      if (fromQuery) return fromQuery;
+      if (current && v.some((x) => x.id === current)) return current;
+      const activeId = getActiveRuleVersionId(ruleBaseId);
+      const activeOk = activeId && v.some((x) => x.id === activeId);
+      const latest = v[v.length - 1]!.id;
+      return activeOk ? activeId! : latest;
+    });
+  }, [ruleBaseId, versionFromQuery]);
 
   // Sync form when selected version changes
   const selectedRule = selectedVersionId ? getExtractionRule(selectedVersionId) : undefined;
-  useEffect(() => {
-    setHasSubmitted(false);
-  }, [selectedVersionId]);
-
   useEffect(() => {
     if (selectedRule) {
       setName(selectedRule.name);
@@ -75,17 +79,7 @@ export default function EditExtractionRulePage() {
     [categories, categoryId]
   );
 
-  const updatedRuleText = useMemo(() => {
-    const lines: string[] = [];
-    if (name.trim()) lines.push(`Name: ${name.trim()}`);
-    if (categoryName) lines.push(`Category: ${categoryName}`);
-    if (description.trim()) lines.push(`Description: ${description.trim()}`);
-    if (role.trim()) lines.push(`Role:\n${role.trim()}`);
-    if (prompt.trim()) lines.push(`Guidelines:\n${prompt.trim()}`);
-    if (example.trim()) lines.push(`Example(s):\n${example.trim()}`);
-    if (specialInstruction.trim()) lines.push(`Special instruction:\n${specialInstruction.trim()}`);
-    return lines.join("\n\n");
-  }, [name, categoryName, description, role, prompt, example, specialInstruction]);
+  const activeVersionId = getActiveRuleVersionId(ruleBaseId);
 
   const handleSubmit = () => {
     if (!selectedVersionId || !name.trim() || !categoryId) return;
@@ -97,7 +91,17 @@ export default function EditExtractionRulePage() {
       prompt: prompt.trim() || "—",
       specialInstruction: specialInstruction.trim() || undefined,
     });
-    setHasSubmitted(true);
+  };
+
+  const handlePublish = () => {
+    if (!selectedVersionId) return;
+    publishExtractionRuleVersion(selectedVersionId);
+    router.push("/rules?published=1");
+  };
+
+  const handleSetActiveVersion = () => {
+    if (!selectedVersionId) return;
+    setActiveRuleVersionId(ruleBaseId, selectedVersionId);
   };
 
   const handleAddNewVersion = () => {
@@ -149,11 +153,13 @@ export default function EditExtractionRulePage() {
               <Select
                 value={selectedVersionId}
                 onChange={(e) => setSelectedVersionId(e.target.value)}
-                className="w-32"
+                className="min-w-[8rem]"
               >
                 {versions.map((v) => (
                   <option key={v.id} value={v.id}>
                     v{v.version}
+                    {v.isPublished ? " (published)" : ""}
+                    {activeVersionId === v.id ? " (active)" : ""}
                   </option>
                 ))}
               </Select>
@@ -161,7 +167,13 @@ export default function EditExtractionRulePage() {
             <Button type="button" variant="outline" size="sm" onClick={handleAddNewVersion}>
               <Plus className="h-4 w-4 mr-1" /> Add new version
             </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={handleSetActiveVersion} disabled={!selectedVersionId}>
+              <Pin className="h-4 w-4 mr-1" /> Set active version
+            </Button>
           </div>
+          <p className="text-xs text-[var(--muted)] pt-1">
+            The version selected above is loaded in the form. Use Set active version to mark which version is the working default for this rule.
+          </p>
         </CardHeader>
         <CardContent>
           <ExtractionRuleFormFields
@@ -182,10 +194,14 @@ export default function EditExtractionRulePage() {
             specialInstruction={specialInstruction}
             setSpecialInstruction={setSpecialInstruction}
             categoryName={categoryName}
-            hasSubmitted={hasSubmitted}
-            updatedRuleText={updatedRuleText}
             onSubmit={handleSubmit}
             submitDisabled={!name.trim() || !categoryId}
+            lockNameAndCategory
+            testStepExtra={
+              <Button type="button" onClick={handlePublish} disabled={!selectedVersionId}>
+                Publish rule
+              </Button>
+            }
             cancelSlot={
               <Link href="/rules" className={buttonVariants({ variant: "outline" })}>
                 Cancel

@@ -2,46 +2,23 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import {
     defaultCompetencyBands,
     defaultCompetencyBandsByDosage,
     DOSAGE_TYPES,
-    type CompetencyBand,
     type DosageType,
 } from "@/data/mock";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-
-const accuracyOverTime = [
-    { month: "Jan", accuracy: 84 },
-    { month: "Feb", accuracy: 86 },
-    { month: "Mar", accuracy: 87 },
-    { month: "Apr", accuracy: 88 },
-    { month: "May", accuracy: 90 },
-    { month: "Jun", accuracy: 91 },
-];
 
 type CompetencyTab = "model" | "dosage";
 
 export default function CompetencyModelPage() {
     const [activeTab, setActiveTab] = useState<CompetencyTab>("model");
-    const [bands, setBands] = useState<CompetencyBand[]>(defaultCompetencyBands);
+    const bands = defaultCompetencyBands;
     const [selectedDosage, setSelectedDosage] = useState<DosageType>("Tablets");
-    const [bandsByDosage, setBandsByDosage] = useState<Record<DosageType, CompetencyBand[]>>(defaultCompetencyBandsByDosage);
-
-    const updateBand = (i: number, key: keyof CompetencyBand, value: number | string) => {
-        setBands((b) => b.map((x, j) => (j === i ? { ...x, [key]: value } : x)));
-    };
+    const bandsByDosage = defaultCompetencyBandsByDosage;
 
     const dosageBands = bandsByDosage[selectedDosage];
-    const updateDosageBand = (i: number, key: keyof CompetencyBand, value: number | string) => {
-        setBandsByDosage((prev) => ({
-            ...prev,
-            [selectedDosage]: prev[selectedDosage].map((x, j) => (j === i ? { ...x, [key]: value } : x)),
-        }));
-    };
 
     return (
         <div className="space-y-6">
@@ -50,7 +27,6 @@ export default function CompetencyModelPage() {
                     <h1 className="text-2xl font-semibold tracking-tight">Competency</h1>
                     <p className="text-[var(--muted)] text-sm">Govern AI trust level via thresholds</p>
                 </div>
-                <Badge variant="safe" className="text-sm">Highly Intelligent</Badge>
             </div>
 
             <div className="border-b border-[var(--border)]">
@@ -105,15 +81,16 @@ export default function CompetencyModelPage() {
                                                 <input
                                                     type="text"
                                                     value={band.label}
-                                                    onChange={(e) => updateBand(i, "label", e.target.value)}
-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-40"
+                                                    readOnly
+                                                    disabled
+                                                    className="border border-[var(--border)] rounded px-2 py-1 w-40 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
                                                 />
                                             </td>
                                             <td className="py-3">
                                                 <select
                                                     value={band.autoApproval}
-                                                    onChange={(e) => updateBand(i, "autoApproval", e.target.value as CompetencyBand["autoApproval"])}
-                                                    className="border border-[var(--border)] rounded px-2 py-1"
+                                                    disabled
+                                                    className="border border-[var(--border)] rounded px-2 py-1 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
                                                 >
                                                     <option value="enabled">Enabled</option>
                                                     <option value="conditional">Conditional</option>
@@ -126,8 +103,9 @@ export default function CompetencyModelPage() {
                                                     min={0}
                                                     max={100}
                                                     value={band.accuracyMin}
-                                                    onChange={(e) => updateBand(i, "accuracyMin", Number(e.target.value) || 0)}
-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16"
+                                                    readOnly
+                                                    disabled
+                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
                                                 />
                                             </td>
                                             <td className="py-3">
@@ -136,8 +114,9 @@ export default function CompetencyModelPage() {
                                                     min={0}
                                                     max={100}
                                                     value={band.accuracyMax}
-                                                    onChange={(e) => updateBand(i, "accuracyMax", Number(e.target.value) || 100)}
-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16"
+                                                    readOnly
+                                                    disabled
+                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
                                                 />
                                             </td>
                                         </tr>
@@ -145,7 +124,6 @@ export default function CompetencyModelPage() {
                                 </tbody>
                             </table>
                         </div>
-                        <Button className="mt-4">Save Version</Button>
                     </CardContent>
                 </Card>
             )}
@@ -162,7 +140,8 @@ export default function CompetencyModelPage() {
                                 id="dosage-type"
                                 value={selectedDosage}
                                 onChange={(e) => setSelectedDosage(e.target.value as DosageType)}
-                                className="w-40"
+                                className="w-40 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
+                                disabled
                             >
                                 {DOSAGE_TYPES.map((d) => (
                                     <option key={d} value={d}>{d}</option>
@@ -190,15 +169,16 @@ export default function CompetencyModelPage() {
                                                 <input
                                                     type="text"
                                                     value={band.label}
-                                                    onChange={(e) => updateDosageBand(i, "label", e.target.value)}
-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-40"
+                                                    readOnly
+                                                    disabled
+                                                    className="border border-[var(--border)] rounded px-2 py-1 w-40 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
                                                 />
                                             </td>
                                             <td className="py-3">
                                                 <select
                                                     value={band.autoApproval}
-                                                    onChange={(e) => updateDosageBand(i, "autoApproval", e.target.value as CompetencyBand["autoApproval"])}
-                                                    className="border border-[var(--border)] rounded px-2 py-1"
+                                                    disabled
+                                                    className="border border-[var(--border)] rounded px-2 py-1 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
                                                 >
                                                     <option value="enabled">Enabled</option>
                                                     <option value="conditional">Conditional</option>
@@ -211,8 +191,9 @@ export default function CompetencyModelPage() {
                                                     min={0}
                                                     max={100}
                                                     value={band.accuracyMin}
-                                                    onChange={(e) => updateDosageBand(i, "accuracyMin", Number(e.target.value) || 0)}
-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16"
+                                                    readOnly
+                                                    disabled
+                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
                                                 />
                                             </td>
                                             <td className="py-3">
@@ -221,8 +202,9 @@ export default function CompetencyModelPage() {
                                                     min={0}
                                                     max={100}
                                                     value={band.accuracyMax}
-                                                    onChange={(e) => updateDosageBand(i, "accuracyMax", Number(e.target.value) || 100)}
-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16"
+                                                    readOnly
+                                                    disabled
+                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
                                                 />
                                             </td>
                                         </tr>
@@ -230,7 +212,6 @@ export default function CompetencyModelPage() {
                                 </tbody>
                             </table>
                         </div>
-                        <Button className="mt-4">Save Version</Button>
                     </CardContent>
                 </Card>
             )}

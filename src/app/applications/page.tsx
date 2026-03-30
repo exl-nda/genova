@@ -16,19 +16,20 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { mockApplications, type Application, type DecisionStatus } from "@/data/mock";
+import { mockApplications } from "@/data/mock";
+import { getApplicationReviewStatus, type ApplicationReviewStatus } from "@/data/extraction-store";
 import { Eye, UserPlus, RotateCcw } from "lucide-react";
 
-function statusVariant(s: DecisionStatus): "safe" | "review" | "risk" {
-    if (s === "auto_approved") return "safe";
-    if (s === "review_required") return "review";
-    return "risk";
+function reviewStatusLabel(s: ApplicationReviewStatus): string {
+    if (s === "under_review") return "Under-review";
+    if (s === "ready_for_review") return "Ready for Review";
+    return "Reviewed";
 }
 
-function statusLabel(s: DecisionStatus): string {
-    if (s === "auto_approved") return "Auto Approved";
-    if (s === "review_required") return "Review Required";
-    return "Rejected";
+function reviewStatusVariant(s: ApplicationReviewStatus): "safe" | "review" | "risk" {
+    if (s === "reviewed") return "safe";
+    if (s === "ready_for_review") return "review";
+    return "risk";
 }
 
 function ApplicationsContent() {
@@ -43,7 +44,8 @@ function ApplicationsContent() {
 
     const filtered = useMemo(() => {
         return mockApplications.filter((app) => {
-            if (statusFilter !== "all" && app.decisionStatus !== statusFilter) return false;
+            const reviewStatus = getApplicationReviewStatus(app.id);
+            if (statusFilter !== "all" && reviewStatus !== statusFilter) return false;
             if (app.confidence < confidenceMin || app.confidence > confidenceMax) return false;
             if (search.trim()) {
                 const q = search.trim().toLowerCase();
@@ -68,19 +70,21 @@ function ApplicationsContent() {
                 <CardContent>
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
                         <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Status</label>
+                            <label className="text-xs font-medium text-[var(--muted)]">Decision status</label>
                             <Select
                                 value={statusFilter}
-                                onChange={(e) => router.push(e.target.value === "all" ? "/applications" : `/applications?status=${e.target.value}`)}
+                                onChange={(e) =>
+                                    router.push(e.target.value === "all" ? "/applications" : `/applications?status=${e.target.value}`)
+                                }
                             >
                                 <option value="all">All</option>
-                                <option value="auto_approved">Auto Approved</option>
-                                <option value="review_required">Review Required</option>
-                                <option value="rejected">Rejected</option>
+                                <option value="under_review">Under-review</option>
+                                <option value="ready_for_review">Ready for Review</option>
+                                <option value="reviewed">Reviewed</option>
                             </Select>
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-[var(--muted)]">Confidence %</label>
+                            <label className="text-xs font-medium text-[var(--muted)]">Trust Score</label>
                             <div className="flex gap-2 items-center">
                                 <Input type="number" min={0} max={100} value={confidenceMin} onChange={(e) => setConfidenceMin(Number(e.target.value) || 0)} className="w-20" />
                                 <span className="text-[var(--muted)]">–</span>
@@ -114,36 +118,45 @@ function ApplicationsContent() {
                             <TableRow>
                                 <TableHead>NDC</TableHead>
                                 <TableHead>Supplier</TableHead>
-                                <TableHead>Confidence %</TableHead>
+                                <TableHead>Trsut Score</TableHead>
                                 <TableHead>Competency Level</TableHead>
-                                <TableHead>Decision Status</TableHead>
+                                <TableHead>Status</TableHead>
                                 <TableHead>Timestamp</TableHead>
                                 <TableHead className="w-[140px]">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {filtered.map((app) => (
-                                <TableRow
-                                    key={app.id}
-                                    className={app.decisionStatus === "auto_approved" ? "bg-emerald-50/50" : app.decisionStatus === "review_required" ? "bg-amber-50/50" : "bg-red-50/50"}
-                                >
-                                    <TableCell className="font-medium">{app.id}</TableCell>
-                                    <TableCell>{app.supplier}</TableCell>
-                                    <TableCell>{app.confidence}%</TableCell>
-                                    <TableCell>{app.competencyLevel}</TableCell>
-                                    <TableCell>
-                                        <Badge variant={statusVariant(app.decisionStatus)}>{statusLabel(app.decisionStatus)}</Badge>
-                                    </TableCell>
-                                    <TableCell>{new Date(app.timestamp).toLocaleString()}</TableCell>
-                                    <TableCell>
-                                        <div className="flex gap-1">
-                                            <Link href={`/applications/${app.id}`} className={buttonVariants({ variant: "ghost", size: "icon" })} title="View Details"><Eye className="h-4 w-4" /></Link>
-                                            <Button variant="ghost" size="icon" title="Assign Reviewer"><UserPlus className="h-4 w-4" /></Button>
-                                            <Button variant="ghost" size="icon" title="Reprocess"><RotateCcw className="h-4 w-4" /></Button>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            ))}
+                            {filtered.map((app) => {
+                                const rs = getApplicationReviewStatus(app.id);
+                                return (
+                                    <TableRow
+                                        key={app.id}
+                                        className={
+                                            rs === "reviewed"
+                                                ? "bg-emerald-50/50"
+                                                : rs === "ready_for_review"
+                                                  ? "bg-amber-50/50"
+                                                  : "bg-red-50/50"
+                                        }
+                                    >
+                                        <TableCell className="font-medium">{app.id}</TableCell>
+                                        <TableCell>{app.supplier}</TableCell>
+                                        <TableCell>{app.confidence}%</TableCell>
+                                        <TableCell>{app.competencyLevel}</TableCell>
+                                        <TableCell>
+                                            <Badge variant={reviewStatusVariant(rs)}>{reviewStatusLabel(rs)}</Badge>
+                                        </TableCell>
+                                        <TableCell>{new Date(app.timestamp).toLocaleString()}</TableCell>
+                                        <TableCell>
+                                            <div className="flex gap-1">
+                                                <Link href={`/applications/${app.id}`} className={buttonVariants({ variant: "ghost", size: "icon" })} title="View Details"><Eye className="h-4 w-4" /></Link>
+                                                <Button variant="ghost" size="icon" title="Assign Reviewer"><UserPlus className="h-4 w-4" /></Button>
+                                                <Button variant="ghost" size="icon" title="Reprocess"><RotateCcw className="h-4 w-4" /></Button>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })}
                         </TableBody>
                     </Table>
                 </CardContent>

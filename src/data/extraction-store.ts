@@ -158,6 +158,7 @@ export function createExtractionRule(data: {
         specialInstruction: data.specialInstruction,
         version,
         lastModified: new Date().toISOString().slice(0, 10),
+        isPublished: false,
     };
     extractionRules.push(rule);
     return rule;
@@ -185,6 +186,7 @@ export function createNewRuleVersion(
         lastModified: new Date().toISOString().slice(0, 10),
         lastEditedBy: data.lastEditedBy ?? "system",
         lastEditedAt: data.lastEditedAt ?? new Date().toISOString(),
+        isPublished: false,
     };
     extractionRules.push(rule);
     return rule;
@@ -204,6 +206,18 @@ export function updateExtractionRule(
     return extractionRules[i];
 }
 
+/** Mark one version as the published production rule for its base; clears others. */
+export function publishExtractionRuleVersion(versionedRuleId: string): ExtractionRule | undefined {
+    const rule = extractionRules.find((r) => r.id === versionedRuleId);
+    if (!rule) return undefined;
+    for (const r of extractionRules) {
+        if (r.ruleBaseId === rule.ruleBaseId) {
+            r.isPublished = r.id === versionedRuleId;
+        }
+    }
+    return rule;
+}
+
 export function listVersionsForRule(ruleBaseId: string): ExtractionRule[] {
     const list = extractionRules.filter((r) => r.ruleBaseId === ruleBaseId);
     list.sort((a, b) => {
@@ -220,6 +234,8 @@ export interface RuleBaseInfo {
     name: string;
     categoryId: string;
     versionCount: number;
+    /** Latest version label for this rule base (e.g. "1.2"). */
+    currentVersion: string;
     lastModified: string;
 }
 
@@ -244,6 +260,7 @@ export function listRuleBases(): RuleBaseInfo[] {
             name: first.name,
             categoryId: first.categoryId,
             versionCount: versions.length,
+            currentVersion: last.version,
             lastModified: last.lastModified,
         };
     });
@@ -370,6 +387,42 @@ export function setFieldDecision(applicationId: string, fieldKey: string, decisi
     } else {
         delete fieldDecisionReasons[applicationId][fieldKey];
     }
+}
+
+export type ApplicationReviewStatus = "under_review" | "ready_for_review" | "reviewed";
+
+const applicationFinalApproved: Record<string, boolean> = {};
+
+export function getApplicationFinalApproved(applicationId: string): boolean {
+    return applicationFinalApproved[applicationId] === true;
+}
+
+export function setApplicationFinalApproved(applicationId: string, approved: boolean): void {
+    applicationFinalApproved[applicationId] = approved;
+}
+
+/** Derived review state for list/detail: all fields checked + final approve gates Ready vs Reviewed. */
+export function getApplicationReviewStatus(applicationId: string): ApplicationReviewStatus {
+    const fields = getExtractedFieldsForApplication(applicationId);
+    if (fields.length === 0) return "under_review";
+    const allFieldChecked = fields.every((f) => getFieldDecision(applicationId, f.field) === "approved");
+    if (!allFieldChecked) return "under_review";
+    if (getApplicationFinalApproved(applicationId)) return "reviewed";
+    return "ready_for_review";
+}
+
+const activeRuleVersionByBaseId: Record<string, string> = {};
+
+export function getActiveRuleVersionId(ruleBaseId: string): string | undefined {
+    const id = activeRuleVersionByBaseId[ruleBaseId];
+    if (id && extractionRules.some((r) => r.id === id)) return id;
+    return undefined;
+}
+
+export function setActiveRuleVersionId(ruleBaseId: string, versionedRuleId: string): void {
+    const rule = extractionRules.find((r) => r.id === versionedRuleId && r.ruleBaseId === ruleBaseId);
+    if (!rule) return;
+    activeRuleVersionByBaseId[ruleBaseId] = versionedRuleId;
 }
 
 // --- Rule performance (aggregate precision across applications) ---

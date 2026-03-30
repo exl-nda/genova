@@ -3,8 +3,6 @@
 import { Search, Bell, User } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-
 export function Header() {
   return (
     <header className="flex h-14 items-center gap-4 border-b border-[var(--border)] bg-[var(--card)] px-6">
@@ -18,7 +16,6 @@ export function Header() {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Badge variant="safe" className="text-xs">Model: Highly Intelligent</Badge>
         <Button variant="ghost" size="icon" aria-label="Notifications">
           <Bell className="h-5 w-5" />
         </Button>

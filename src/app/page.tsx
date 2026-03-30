@@ -116,6 +116,8 @@ export default function DashboardPage() {
         [dimension, selectedValue]
     );
 
+    const dosageTypeConfidenceBars = useMemo(() => avgConfidenceByDosage(), []);
+
     const accuracyOverTime = useMemo(() => {
         if (!selectedValue) return [];
         if (dimension === "supplier") {
@@ -194,11 +196,11 @@ export default function DashboardPage() {
             <div className="grid gap-6 lg:grid-cols-2">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Weighted average confidence score</CardTitle>
+                        <CardTitle>Trust Score</CardTitle>
                         <p className="text-sm text-[var(--muted)]">
                             {selectedValue
-                                ? `Average confidence for ${selectedLabel}`
-                                : `Average confidence by ${dimension === "supplier" ? "supplier" : "dosage type"}`}
+                                ? ``
+                                : `Average trust score by ${dimension === "supplier" ? "supplier" : ""}`}
                         </p>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -247,14 +249,68 @@ export default function DashboardPage() {
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>NDS forms by intelligence level</CardTitle>
+                        <CardTitle>Dosage type</CardTitle>
                         <p className="text-sm text-[var(--muted)]">
-                            Count of forms in Highly Intelligent, Intelligent, Needs Training for{" "}
-                            {selectedValue ? selectedLabel : "all"}
+                            Average confidence by dosage type
+                        </p>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {dimension === "dosageType" && selectedValue && (
+                            <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3 text-center">
+                                <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
+                                    Selected: {selectedLabel}
+                                </p>
+                                <p className="text-2xl font-bold tabular-nums" style={{ color: "var(--informational)" }}>
+                                    {weightedAvgConfidence}%
+                                </p>
+                            </div>
+                        )}
+                        <div className="h-[240px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart
+                                    data={dosageTypeConfidenceBars}
+                                    margin={{ top: 8, right: 8, left: 8, bottom: 24 }}
+                                    layout="vertical"
+                                >
+                                    <CartesianGrid strokeDasharray="3 3" className="stroke-[var(--border)]" />
+                                    <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
+                                    <YAxis type="category" dataKey="name" width={88} tick={{ fontSize: 11 }} />
+                                    <Tooltip
+                                        formatter={(v: number | undefined) => [`${v != null ? v : 0}%`, "Avg confidence"]}
+                                        labelFormatter={(label) => `${label}`}
+                                    />
+                                    <Bar dataKey="avgConfidence" name="Avg confidence" radius={[0, 4, 4, 0]} maxBarSize={32}>
+                                        {dosageTypeConfidenceBars.map((entry) => (
+                                            <Cell
+                                                key={entry.name}
+                                                fill={
+                                                    dimension === "dosageType" && selectedValue && entry.name === selectedValue
+                                                        ? "var(--informational)"
+                                                        : "var(--muted)"
+                                                }
+                                                opacity={
+                                                    dimension === "dosageType" && selectedValue && entry.name !== selectedValue
+                                                        ? 0.5
+                                                        : 1
+                                                }
+                                            />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle>Intelligence mix for selection</CardTitle>
+                        <p className="text-sm text-[var(--muted)]">
+                            Competency band counts for the current supplier or dosage drill-down (or all).
                         </p>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-[240px]">
+                        <div className="h-[200px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart
                                     data={drillDownData}
@@ -265,7 +321,7 @@ export default function DashboardPage() {
                                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={28} />
                                     <Tooltip formatter={(v: number | undefined) => [v ?? 0, "Forms"]} />
                                     <Bar dataKey="count" name="NDS forms" radius={[4, 4, 0, 0]}>
-                                        {drillDownData.map((entry, i) => (
+                                        {drillDownData.map((entry) => (
                                             <Cell key={entry.label} fill={entry.fill} />
                                         ))}
                                     </Bar>

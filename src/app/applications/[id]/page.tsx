@@ -2,19 +2,12 @@
 
 import React from "react";
 import { useParams } from "next/navigation";
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -22,19 +15,17 @@ import { mockApplications } from "@/data/mock";
 import {
     getExtractedFieldsForApplication,
     getExtractionRule,
-    listVersionsForRule,
-    editRuleFromField,
-    reprocessField,
     getFieldDecision,
-    getFieldDecisionReason,
     setFieldDecision,
-    DOCUMENT_FIELD_KEYS,
+    getApplicationFinalApproved,
+    setApplicationFinalApproved,
+    getApplicationReviewStatus,
+    listCategories,
 } from "@/data/extraction-store";
 import type { ExtractedField } from "@/data/mock";
-import { ArrowLeft, FileText, Check, X, Edit, MessageCircle, ChevronDown, ChevronLeft, ChevronRight, RefreshCw, ZoomIn, ZoomOut, Maximize2, Minimize2 } from "lucide-react";
+import { ArrowLeft, Check, Edit, ChevronDown, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Minimize2, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from "recharts";
 
 const PdfDocument = dynamic(async () => (await import("react-pdf")).Document, { ssr: false });
 const PdfPage = dynamic(async () => (await import("react-pdf")).Page, { ssr: false });
@@ -64,333 +55,6 @@ const MOCK_HIGHLIGHT_BOXES: Array<{ x: number; y: number; w: number; h: number }
     { x: 0.09, y: 0.4, w: 0.75, h: 0.055 },
 ];
 
-type SmartPromptEditorProps = {
-    value: string;
-    onChange: (next: string) => void;
-    placeholder?: string;
-};
-
-function escapeHtml(input: string): string {
-    return input
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
-
-function SmartPromptEditor({ value, onChange, placeholder }: SmartPromptEditorProps) {
-    const editorRef = useRef<HTMLDivElement>(null);
-    const baselineRef = useRef(value ?? "");
-    const isFocusedRef = useRef(false);
-    const [query, setQuery] = useState("");
-    const [trigger, setTrigger] = useState<"/" | "#" | null>(null);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const [activeIndex, setActiveIndex] = useState(0);
-    const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
-    const pendingCaretRef = useRef<number | null>(null);
-
-    const keywords = useMemo(
-        () => [
-            "NDA",
-            "PM",
-            "505(b)(1)",
-            "Generic Indicator",
-            "Vendor ID",
-            "Catalog Item",
-            "Load TBA",
-            "SVC LVL Catgy",
-            "MCK-GPC",
-            "DSCSA Exempt",
-            "NRDC",
-            "SRC",
-            "Snowflake",
-        ],
-        []
-    );
-
-    const dictionary = useMemo(
-        () =>
-            new Set(
-                [
-                    ...keywords,
-                    "Extract", "extract", "from", "the", "under", "section", "value", "if", "then",
-                    "and", "or", "with", "for", "field", "product", "information", "application",
-                    "type", "generic", "drug", "indicator", "vendor", "name", "id", "table", "always",
-                    "is", "not", "in", "to", "of", "on", "by", "review", "alert", "query", "dynamic",
-                ].map((w) => w.toLowerCase())
-            ),
-        [keywords]
-    );
-
-    const suggestions = useMemo(() => {
-        if (!query.trim()) return keywords.slice(0, 8);
-        const q = query.toLowerCase();
-        return keywords.filter((k) => k.toLowerCase().includes(q)).slice(0, 8);
-    }, [keywords, query]);
-
-    const keywordTokens = useMemo(() => {
-        const set = new Set<string>();
-        for (const phrase of keywords) {
-            for (const token of phrase.split(/\s+/)) {
-                if (token.trim()) set.add(token.toLowerCase());
-            }
-        }
-        return set;
-    }, [keywords]);
-
-    const getWordKey = (token: string) =>
-        token
-            .replace(/^[^A-Za-z0-9(]+|[^A-Za-z0-9)]+$/g, "")
-            .toLowerCase();
-
-    const buildCountMap = (input: string) => {
-        const map = new Map<string, number>();
-        const tokens = input.split(/\s+/).filter(Boolean).map(getWordKey).filter(Boolean);
-        for (const t of tokens) map.set(t, (map.get(t) ?? 0) + 1);
-        return map;
-    };
-
-    const renderDecoratedHtml = useCallback(
-        (plain: string) => {
-            const baselineCounts = buildCountMap(baselineRef.current || "");
-            const remaining = new Map(baselineCounts);
-            const parts = plain.split(/(\s+)/);
-            return parts
-                .map((part) => {
-                    if (/^\s+$/.test(part)) return part.replaceAll("\n", "<br/>");
-                    const safe = escapeHtml(part);
-                    const key = getWordKey(part);
-                    const left = remaining.get(key) ?? 0;
-                    const isChanged = key.length > 0 && left === 0;
-                    if (left > 0) remaining.set(key, left - 1);
-                    const isKeyword = keywordTokens.has(key);
-                    const alpha = /^[a-zA-Z]+$/.test(part);
-                    const isMisspelled = alpha && !dictionary.has(part.toLowerCase());
-
-                    if (isChanged && isKeyword) return `<strong>${safe}</strong>`;
-                    if (isChanged && isMisspelled) {
-                        return `<span style="text-decoration: underline; text-decoration-color: #ef4444; text-decoration-thickness: 2px;">${safe}</span>`;
-                    }
-                    return safe;
-                })
-                .join("");
-        },
-        [dictionary, keywordTokens]
-    );
-
-    const getCaretOffset = useCallback((root: HTMLElement): number => {
-        const sel = window.getSelection();
-        if (!sel || !sel.rangeCount) return 0;
-        const range = sel.getRangeAt(0).cloneRange();
-        const pre = range.cloneRange();
-        pre.selectNodeContents(root);
-        pre.setEnd(range.endContainer, range.endOffset);
-        return pre.toString().length;
-    }, []);
-
-    const setCaretOffset = useCallback((root: HTMLElement, offset: number) => {
-        const selection = window.getSelection();
-        if (!selection) return;
-        const range = document.createRange();
-        let remaining = offset;
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-        let node = walker.nextNode();
-        while (node) {
-            const text = node.textContent ?? "";
-            if (remaining <= text.length) {
-                range.setStart(node, Math.max(0, remaining));
-                range.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(range);
-                return;
-            }
-            remaining -= text.length;
-            node = walker.nextNode();
-        }
-        range.selectNodeContents(root);
-        range.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(range);
-    }, []);
-
-    const syncFromExternalValue = useCallback(() => {
-        const el = editorRef.current;
-        if (!el) return;
-        const shouldPreserveCaret = isFocusedRef.current;
-        const caret = shouldPreserveCaret ? getCaretOffset(el) : 0;
-        const html = renderDecoratedHtml(value || "");
-        if (el.innerHTML !== html) {
-            el.innerHTML = html || "";
-            if (shouldPreserveCaret) setCaretOffset(el, caret);
-        }
-    }, [getCaretOffset, renderDecoratedHtml, setCaretOffset, value]);
-
-    useEffect(() => {
-        if (!isFocusedRef.current) {
-            baselineRef.current = value || "";
-        }
-        syncFromExternalValue();
-    }, [syncFromExternalValue]);
-
-    const readPlainText = () => {
-        const el = editorRef.current;
-        if (!el) return "";
-        return el.innerText.replace(/\u00A0/g, "");
-    };
-
-    const updateSuggestionState = () => {
-        const sel = window.getSelection();
-        const el = editorRef.current;
-        if (!sel || !sel.rangeCount || !el) return;
-
-        const text = readPlainText();
-        const caret = getCaretOffset(el);
-        const leftText = text.slice(0, Math.max(0, caret));
-        const match = leftText.match(/(^|\s)([\/#])([^\s]*)$/);
-
-        if (!match) {
-            setShowSuggestions(false);
-            setTrigger(null);
-            setQuery("");
-            return;
-        }
-
-        const foundTrigger = match[2] as "/" | "#";
-        const nextQuery = match[3] ?? "";
-        setTrigger(foundTrigger);
-        setQuery(nextQuery);
-        setShowSuggestions(true);
-        setActiveIndex(0);
-
-        const r = sel.getRangeAt(0).cloneRange();
-        r.collapse(true);
-        const rect = r.getBoundingClientRect();
-        const hostRect = el.getBoundingClientRect();
-        setMenuPos({
-            top: rect.bottom - hostRect.top + 6,
-            left: rect.left - hostRect.left,
-        });
-    };
-
-    const applySuggestion = (word: string) => {
-        const el = editorRef.current;
-        const current = readPlainText();
-        const caret = el ? getCaretOffset(el) : current.length;
-        const left = current.slice(0, caret);
-        const match = /(^|\s)[\/#][^\s]*$/.exec(left);
-        if (!match) return;
-        const replaceStart = match.index + (match[1] ? match[1].length : 0);
-        const next = current.slice(0, replaceStart) + word + current.slice(caret);
-        pendingCaretRef.current = replaceStart + word.length;
-
-        onChange(next);
-        setShowSuggestions(false);
-        setTrigger(null);
-        setQuery("");
-
-        requestAnimationFrame(() => {
-            syncFromExternalValue();
-            if (editorRef.current) {
-                editorRef.current.focus();
-                if (pendingCaretRef.current != null) {
-                    setCaretOffset(editorRef.current, pendingCaretRef.current);
-                    pendingCaretRef.current = null;
-                }
-            }
-        });
-    };
-
-    const onInput = () => {
-        const next = readPlainText();
-        onChange(next);
-        requestAnimationFrame(() => {
-            syncFromExternalValue();
-            updateSuggestionState();
-        });
-    };
-
-    const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
-        if (e.key === "/" || e.key === "#") {
-            requestAnimationFrame(updateSuggestionState);
-        }
-        if (!showSuggestions || suggestions.length === 0) return;
-
-        if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setActiveIndex((i) => (i + 1) % suggestions.length);
-            return;
-        }
-        if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setActiveIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
-            return;
-        }
-        if (e.key === "Enter" || e.key === "Tab") {
-            e.preventDefault();
-            applySuggestion(suggestions[activeIndex]);
-            return;
-        }
-        if (e.key === "Escape") {
-            e.preventDefault();
-            setShowSuggestions(false);
-        }
-    };
-
-    return (
-        <div className="relative">
-            <div
-                ref={editorRef}
-                contentEditable
-                suppressContentEditableWarning
-                spellCheck={false}
-                onFocus={() => {
-                    isFocusedRef.current = true;
-                    baselineRef.current = value || "";
-                }}
-                onBlur={() => {
-                    isFocusedRef.current = false;
-                }}
-                onInput={onInput}
-                onKeyUp={updateSuggestionState}
-                onClick={updateSuggestionState}
-                onKeyDown={onKeyDown}
-                className="w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm min-h-[120px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20"
-                data-placeholder={placeholder ?? ""}
-            />
-            {(!value || value.length === 0) && (
-                <div className="pointer-events-none absolute left-3 top-2 text-sm text-[var(--muted)]">
-                    {placeholder ?? ""}
-                </div>
-            )}
-
-            {showSuggestions && suggestions.length > 0 && (
-                <div
-                    className="absolute z-50 w-64 rounded-md border border-[var(--border)] bg-white shadow-md"
-                    style={{ top: menuPos.top, left: menuPos.left }}
-                >
-                    <div className="px-2 py-1 text-xs text-[var(--muted)] border-b border-[var(--border)]">
-                        {trigger} suggestions
-                    </div>
-                    {suggestions.map((s, idx) => (
-                        <button
-                            key={s}
-                            type="button"
-                            onMouseDown={(e) => {
-                                e.preventDefault();
-                                applySuggestion(s);
-                            }}
-                            className={`block w-full text-left px-2 py-1 text-sm ${idx === activeIndex ? "bg-[var(--sidebar)] font-semibold" : "hover:bg-[var(--sidebar)]/60"
-                                }`}
-                        >
-                            <span className={idx === activeIndex ? "font-semibold" : "font-normal"}>{s}</span>
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
 
 export default function ApplicationDetailPage() {
     const params = useParams();
@@ -399,22 +63,6 @@ export default function ApplicationDetailPage() {
     const [previewTab, setPreviewTab] = useState<"document" | "json">("document");
     const [expandedFieldKey, setExpandedFieldKey] = useState<string | null>(null);
     const [fields, setFields] = useState<ExtractedField[]>(() => getExtractedFieldsForApplication(id));
-    const [editModal, setEditModal] = useState<{
-        fieldKey: string;
-        ruleId: string;
-        ruleBaseId: string;
-        ruleName: string;
-        ruleVersion: string;
-        name: string;
-        description: string;
-        prompt: string;
-        previousConfidence: number;
-        fieldName: string;
-        testOutput: { field: string; value: string; confidence: number;[key: string]: unknown } | null;
-    } | null>(null);
-    const [editModalTesting, setEditModalTesting] = useState(false);
-    const [testSimulateMode, setTestSimulateMode] = useState<"positive" | "negative">("positive");
-    const [reprocessingFieldKey, setReprocessingFieldKey] = useState<string | null>(null);
     const [pdfPageCount, setPdfPageCount] = useState<number>(0);
     const [pdfPageNumber, setPdfPageNumber] = useState(1);
     const [pdfError, setPdfError] = useState<string | null>(null);
@@ -422,12 +70,7 @@ export default function ApplicationDetailPage() {
     const [pdfFitWidth, setPdfFitWidth] = useState(PDF_FALLBACK_WIDTH);
     const [selectedPdfFile, setSelectedPdfFile] = useState(REMOTE_PDF_PROXY_URL);
     const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
-    const [rejectModal, setRejectModal] = useState<{
-        fieldKey: string;
-        reason: string;
-    } | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const editModalNameInputRef = useRef<HTMLInputElement>(null);
     const pdfViewportRef = useRef<HTMLDivElement>(null);
     const [hoveredFieldKey, setHoveredFieldKey] = useState<string | null>(null);
 
@@ -445,13 +88,19 @@ export default function ApplicationDetailPage() {
         manualValue: string;
         changeReason: "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error";
     } | null>(null);
+    const [finalApproveOpen, setFinalApproveOpen] = useState(false);
+    const [viewCatalogRuleField, setViewCatalogRuleField] = useState<ExtractedField | null>(null);
+    const [finalApproveNonce, setFinalApproveNonce] = useState(0);
 
-    useEffect(() => {
-        if (editModal) {
-            setError(null);
-            editModalNameInputRef.current?.focus();
-        }
-    }, [editModal]);
+    const categories = listCategories();
+    const categoryById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c.name])), [categories]);
+    const reviewStatusLabel = useMemo(() => {
+        const s = getApplicationReviewStatus(id);
+        if (s === "under_review") return "Under-review";
+        if (s === "ready_for_review") return "Ready for Review";
+        return "Reviewed";
+    }, [id, fields, finalApproveNonce]);
+    const finalApproved = getApplicationFinalApproved(id);
 
     useEffect(() => {
         // Configure pdf.js worker on client only to avoid DOMMatrix runtime issues.
@@ -476,10 +125,6 @@ export default function ApplicationDetailPage() {
         observer.observe(el);
         return () => observer.disconnect();
     }, [isDetailFullscreen, previewTab]);
-
-    const refreshFields = useCallback(() => {
-        setFields([...getExtractedFieldsForApplication(id)]);
-    }, [id]);
 
     const app = mockApplications.find((a) => a.id === id);
     if (!app) {
@@ -511,127 +156,18 @@ export default function ApplicationDetailPage() {
         })),
     };
 
-    const openEditRule = (f: ExtractedField) => {
-        const rule = f.ruleId ? getExtractionRule(f.ruleId) : undefined;
-        if (!f.ruleId || !rule) return;
-        setEditModal({
-            fieldKey: f.field,
-            ruleId: rule.id,
-            ruleBaseId: rule.ruleBaseId,
-            ruleName: rule.name,
-            ruleVersion: rule.version,
-            name: rule.name,
-            description: rule.description ?? "",
-            prompt: rule.prompt,
-            previousConfidence: Number(f.confidence) || 0,
-            testOutput: null,
-            fieldName: f.field,
-        });
-    };
-
-    const saveEditRule = () => {
-        if (!editModal) return;
-        if (!DOCUMENT_FIELD_KEYS.includes(editModal.fieldName as (typeof DOCUMENT_FIELD_KEYS)[number])) {
-            setError("Invalid field name. Please choose a valid document field.");
-            return;
-        }
-        setError(null);
-        try {
-            editRuleFromField(id, editModal.fieldKey, editModal.ruleId, "Divya Shukla", {
-                name: editModal.name,
-                description: editModal.description || undefined,
-                prompt: editModal.prompt,
-            });
-            setEditModal(null);
-            refreshFields();
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to save rule");
-        }
-    };
-
-    const handleEditModalVersionChange = (versionedId: string) => {
-        const rule = getExtractionRule(versionedId);
-        if (!rule || !editModal) return;
-        const currentField = fields.find((x) => x.field === editModal.fieldKey);
-        setEditModal({
-            ...editModal,
-            ruleId: rule.id,
-            ruleVersion: rule.version,
-            name: rule.name,
-            description: rule.description ?? "",
-            prompt: rule.prompt,
-            previousConfidence: Number(currentField?.confidence ?? editModal.previousConfidence) || 0,
-            testOutput: null,
-        });
-    };
-    const isEditFieldNameValid =
-        !editModal || DOCUMENT_FIELD_KEYS.includes(editModal.fieldName as (typeof DOCUMENT_FIELD_KEYS)[number]);
-
-    const handleTestRule = () => {
-        if (!editModal) return;
-        setEditModalTesting(true);
-        setError(null);
-        const prev = Number(editModal.previousConfidence) || 0;
-        const positive = testSimulateMode === "positive";
-        setTimeout(() => {
-            const delta = 8 + Math.floor(Math.random() * 10);
-            const confidence = positive
-                ? Math.min(99, prev + delta)
-                : Math.max(0, prev - delta);
-            const mockOutput = {
-                field: editModal.fieldKey,
-                value: "Extracted value (mock)",
-                confidence,
-                prompt_preview: editModal.prompt.slice(0, 80) + (editModal.prompt.length > 80 ? "…" : ""),
-                timestamp: new Date().toISOString(),
-            };
-            setEditModal((m) => m ? { ...m, testOutput: mockOutput } : null);
-            setEditModalTesting(false);
-        }, 600);
-    };
-
-    const handleReprocess = (fieldKey: string) => {
-        setError(null);
-        setReprocessingFieldKey(fieldKey);
-        try {
-            reprocessField(id, fieldKey);
-            refreshFields();
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to reprocess field");
-        } finally {
-            setReprocessingFieldKey(null);
-        }
-    };
-
     const handleFieldApprove = (fieldKey: string, e: React.MouseEvent) => {
         e.stopPropagation();
+        if (getFieldDecision(id, fieldKey) === "approved") return;
         setFieldDecision(id, fieldKey, "approved");
         setFields((prev) => [...prev]);
     };
 
-    const handleFieldReject = (fieldKey: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        setRejectModal({
-            fieldKey,
-            reason: getFieldDecisionReason(id, fieldKey) ?? "",
-        });
-    };
+    const allFieldsApproved = useMemo(
+        () => fields.length > 0 && fields.every((f) => getFieldDecision(id, f.field) === "approved"),
+        [fields, id]
+    );
 
-    const submitFieldReject = (fieldKey: string, reason: string, editRuleAfterSubmit: boolean) => {
-        const trimmedReason = reason.trim();
-        if (!trimmedReason) {
-            setError("Please provide a reason before rejecting the field.");
-            return;
-        }
-        setError(null);
-        setFieldDecision(id, fieldKey, "rejected", trimmedReason);
-        setFields((prev) => [...prev]);
-        setRejectModal(null);
-        if (editRuleAfterSubmit) {
-            const field = fields.find((f) => f.field === fieldKey);
-            if (field) openEditRule(field);
-        }
-    };
     const submitValueEdit = () => {
         if (!valueEditModal) return;
 
@@ -677,7 +213,7 @@ export default function ApplicationDetailPage() {
             {!isDetailFullscreen && (
                 <CardHeader>
                     <CardTitle>Extracted Fields</CardTitle>
-                    <p className="text-sm text-[var(--muted)]">Click a row to expand and see rule details. Low-confidence fields can be improved by editing the rule or reprocessing.</p>
+                    <p className="text-sm text-[var(--muted)]">Click a row to expand and see rule details. Approve each field before final approval.</p>
                     {error && (
                         <p className="text-sm text-red-600" role="alert">{error}</p>
                     )}
@@ -699,7 +235,6 @@ export default function ApplicationDetailPage() {
                             const isExpanded = expandedFieldKey === f.field;
                             const isLowConfidence = f.confidence < CONFIDENCE_THRESHOLD;
                             const decision = getFieldDecision(id, f.field);
-                            const decisionReason = getFieldDecisionReason(id, f.field);
                             return (
                                 <React.Fragment key={f.field}>
                                     <div
@@ -738,9 +273,10 @@ export default function ApplicationDetailPage() {
                                                     size="icon"
                                                     variant={decision === "approved" ? "default" : "outline"}
                                                     className="h-7 w-7"
+                                                    disabled={decision === "approved"}
                                                     onClick={(e) => handleFieldApprove(f.field, e)}
                                                     aria-label={`Approve ${f.field}`}
-                                                    title="Approve"
+                                                    title={decision === "approved" ? "Approved" : "Approve"}
                                                 >
                                                     <Check className="h-3.5 w-3.5" />
                                                 </Button>
@@ -777,6 +313,20 @@ export default function ApplicationDetailPage() {
                                                     <span className="font-medium">Rule:</span>{" "}
                                                     {f.ruleId ? (() => {
                                                         const r = getExtractionRule(f.ruleId!);
+                                                        if (f.field === "Catalog Item") {
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    className="text-[var(--foreground)] underline cursor-pointer text-left"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setViewCatalogRuleField(f);
+                                                                    }}
+                                                                >
+                                                                    {f.ruleName ?? f.ruleId}{f.ruleVersion ? ` (v${f.ruleVersion})` : ""}
+                                                                </button>
+                                                            );
+                                                        }
                                                         const href = r ? `/rules/extraction/${r.ruleBaseId}/edit${r.version ? `?version=${r.version}` : ""}` : "#";
                                                         return (
                                                             <Link href={href} className="text-[var(--foreground)] underline">
@@ -792,46 +342,12 @@ export default function ApplicationDetailPage() {
                                                         size="icon"
                                                         variant={decision === "approved" ? "default" : "outline"}
                                                         className="h-7 w-7"
+                                                        disabled={decision === "approved"}
                                                         onClick={(e) => { e.stopPropagation(); handleFieldApprove(f.field, e); }}
                                                         aria-label={`Approve ${f.field}`}
-                                                        title="Approve field"
+                                                        title={decision === "approved" ? "Approved" : "Approve field"}
                                                     >
                                                         <Check className="h-3.5 w-3.5" />
-                                                    </Button>
-                                                    <Button
-                                                        size="icon"
-                                                        variant={decision === "rejected" ? "destructive" : "outline"}
-                                                        className="h-7 w-7"
-                                                        onClick={(e) => { e.stopPropagation(); handleFieldReject(f.field, e); }}
-                                                        aria-label={`Reject ${f.field}`}
-                                                        title="Reject field"
-                                                    >
-                                                        <X className="h-3.5 w-3.5" />
-                                                    </Button>
-                                                </div>
-                                                {decision === "rejected" && decisionReason && (
-                                                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-800">
-                                                        <span className="font-medium">Rejection reason:</span> {decisionReason}
-                                                    </div>
-                                                )}
-                                                <div className="flex flex-wrap gap-2 pt-2">
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        onClick={(e) => { e.stopPropagation(); openEditRule(f); }}
-                                                        aria-label={`Edit rule for ${f.field}`}
-                                                    >
-                                                        <Edit className="h-3 w-3 mr-1" /> Edit rule
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        onClick={(e) => { e.stopPropagation(); handleReprocess(f.field); }}
-                                                        disabled={reprocessingFieldKey === f.field}
-                                                        aria-label={reprocessingFieldKey === f.field ? `Reprocessing ${f.field}` : `Reprocess ${f.field}`}
-                                                    >
-                                                        <RefreshCw className={`h-3 w-3 mr-1 ${reprocessingFieldKey === f.field ? "animate-spin" : ""}`} />
-                                                        {reprocessingFieldKey === f.field ? "Reprocessing…" : "Reprocess field"}
                                                     </Button>
                                                 </div>
                                             </div>
@@ -854,14 +370,24 @@ export default function ApplicationDetailPage() {
                         <Link href="/applications" className={buttonVariants({ variant: "ghost", size: "icon" })}><ArrowLeft className="h-5 w-5" /></Link>
                         <div>
                             <h1 className="text-2xl font-semibold tracking-tight">{app.id}</h1>
-                            <p className="text-[var(--muted)] text-sm">{app.applicantName} · {app.decisionStatus.replace("_", " ")}</p>
+                            <p className="text-[var(--muted)] text-sm">{app.applicantName} · {reviewStatusLabel}</p>
                         </div>
                     </div>
                     <div className="flex gap-2">
-                        <Button variant="default"><Check className="h-4 w-4 mr-2" />Approve</Button>
-                        <Button variant="destructive"><X className="h-4 w-4 mr-2" />Reject</Button>
-                        <Button variant="outline"><Edit className="h-4 w-4 mr-2" />Override Decision</Button>
-                        <Button variant="secondary"><MessageCircle className="h-4 w-4 mr-2" />Request Clarification</Button>
+                        {finalApproved ? (
+                            <Button variant="default" disabled className="gap-2">
+                                <Check className="h-4 w-4" /> Approved
+                            </Button>
+                        ) : (
+                            <Button
+                                variant="default"
+                                disabled={!allFieldsApproved}
+                                title={!allFieldsApproved ? "Approve every field in the table first" : undefined}
+                                onClick={() => setFinalApproveOpen(true)}
+                            >
+                                <Check className="h-4 w-4 mr-2" />Approve
+                            </Button>
+                        )}
                     </div>
                 </div>
             )}
@@ -1093,209 +619,6 @@ export default function ApplicationDetailPage() {
                 </div>
             </div>
 
-            {/* Edit rule modal: three columns — form, output, graph */}
-            {editModal && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="edit-rule-title"
-                    onKeyDown={(e) => e.key === "Escape" && setEditModal(null)}
-                >
-                    <Card className="w-full max-w-7xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                        <CardHeader className="flex flex-row items-center justify-between shrink-0">
-                            <CardTitle id="edit-rule-title">Edit rule for this field</CardTitle>
-                            <Button variant="ghost" size="icon" onClick={() => setEditModal(null)} aria-label="Close">×</Button>
-                        </CardHeader>
-                        <CardContent className="flex-1 min-h-0 overflow-hidden grid grid-cols-1 xl:grid-cols-3 gap-6 pb-6">
-                            {/* Column 1: version + form */}
-                            <div className="space-y-4 min-w-0 min-h-0 overflow-y-auto pr-1">
-                                <p className="text-sm text-[var(--muted)]">
-                                    Run Test to see extraction output. Save creates a new version and maps it to this field only.
-                                </p>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Version</label>
-                                    <Select
-                                        value={editModal.ruleId}
-                                        onChange={(e) => handleEditModalVersionChange(e.target.value)}
-                                        className="w-full"
-                                    >
-                                        {listVersionsForRule(editModal.ruleBaseId).map((v) => (
-                                            <option key={v.id} value={v.id}>v{v.version}</option>
-                                        ))}
-                                    </Select>
-                                    <p className="mt-1 text-xs text-[var(--muted)]">
-                                        Last edited by {getExtractionRule(editModal.ruleId)?.lastEditedBy ?? "—"} on{" "}
-                                        {getExtractionRule(editModal.ruleId)?.lastEditedAt
-                                            ? new Date(getExtractionRule(editModal.ruleId)!.lastEditedAt!).toLocaleString()
-                                            : "—"}
-                                    </p>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1" htmlFor="edit-field-name">Field name</label>
-                                    <Input
-                                        id="edit-field-name"
-                                        value={editModal.fieldName}
-                                        onChange={(e) => setEditModal((m) => m ? { ...m, fieldName: e.target.value } : null)}
-                                        className={isEditFieldNameValid ? "w-full" : "w-full border-red-500 ring-1 ring-red-500"}
-                                    />
-                                    {!isEditFieldNameValid && (
-                                        <p className="mt-1 text-xs text-red-600">Field name is invalid.</p>
-                                    )}
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Description (optional)</label>
-                                    <Input
-                                        value={editModal.description}
-                                        onChange={(e) => setEditModal((m) => m ? { ...m, description: e.target.value } : null)}
-                                        className="w-full"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Prompt</label>
-                                    <SmartPromptEditor
-                                        value={editModal.prompt}
-                                        onChange={(next) => setEditModal((m) => (m ? { ...m, prompt: next } : null))}
-                                        placeholder="e.g. Extract the applicant's full name from the document header."
-                                    />
-                                </div>
-                            </div>
-                            {/* Column 2: Test output */}
-                            <div className="flex flex-col min-h-0 min-w-0 space-y-4 overflow-y-auto pr-1">
-                                <label className="block text-sm font-medium mb-1">Test output</label>
-                                <div className="flex-1 min-h-[260px] rounded-md border border-[var(--border)] bg-[#282c34] overflow-auto">
-                                    {editModal.testOutput != null ? (
-                                        <SyntaxHighlighter
-                                            language="json"
-                                            style={oneDark}
-                                            customStyle={{
-                                                margin: 0,
-                                                padding: "0.75rem 1rem",
-                                                fontSize: "0.75rem",
-                                                lineHeight: 1.5,
-                                                background: "transparent",
-                                                minHeight: "100%",
-                                            }}
-                                            codeTagProps={{ style: { fontFamily: "ui-monospace, monospace" } }}
-                                            showLineNumbers={false}
-                                            PreTag="div"
-                                        >
-                                            {JSON.stringify(editModal.testOutput, null, 2)}
-                                        </SyntaxHighlighter>
-                                    ) : (
-                                        <p className="text-sm text-gray-400 p-4">Run Test to see extraction output here.</p>
-                                    )}
-                                </div>
-                            </div>
-                            {/* Column 3: Confidence comparison + graph */}
-                            <div className="flex flex-col min-h-0 min-w-0 space-y-4">
-                                <div className="shrink-0">
-                                    <label className="block text-sm font-medium mb-2">Confidence impact</label>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 p-4 text-center">
-                                            <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Before</p>
-                                            <p className="text-2xl font-bold mt-1 tabular-nums" style={{ color: "var(--foreground)" }}>
-                                                {Number(editModal.previousConfidence) || 0}%
-                                            </p>
-                                            <p className="text-xs text-[var(--muted)] mt-0.5">current extraction</p>
-                                        </div>
-                                        <div className={`rounded-lg border p-4 text-center ${editModal.testOutput != null
-                                            ? (Number(editModal.testOutput.confidence) || 0) >= (Number(editModal.previousConfidence) || 0)
-                                                ? "border-[var(--safe)] bg-[var(--safe)]/10"
-                                                : "border-red-500 bg-red-500/10"
-                                            : "border-[var(--border)] bg-[var(--sidebar)]/30"
-                                            }`}>
-                                            <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">After</p>
-                                            {editModal.testOutput != null ? (
-                                                (() => {
-                                                    const before = Number(editModal.previousConfidence) || 0;
-                                                    const after = Number(editModal.testOutput.confidence) || 0;
-                                                    const delta = after - before;
-                                                    const isImprovement = delta >= 0;
-                                                    return (
-                                                        <>
-                                                            <p className={`text-2xl font-bold mt-1 tabular-nums ${isImprovement ? "text-[var(--safe)]" : "text-red-500"}`}>
-                                                                {after}%
-                                                            </p>
-                                                            <p className="text-xs mt-0.5">
-                                                                <span className={isImprovement ? "text-[var(--safe)]" : "text-red-500"}>
-                                                                    {delta >= 0 ? "↑" : "↓"} {Math.abs(delta)} pts
-                                                                </span>
-                                                            </p>
-                                                        </>
-                                                    );
-                                                })()
-                                            ) : (
-                                                <p className="text-sm text-[var(--muted)] mt-2">Run Test</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="mt-auto flex-1 min-h-[260px] rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 p-3">
-                                    {editModal.testOutput != null ? (
-                                        (() => {
-                                            const beforeVal = Number(editModal.previousConfidence) || 0;
-                                            const afterVal = Number(editModal.testOutput.confidence) || 0;
-                                            const afterColor = afterVal >= beforeVal ? "var(--safe)" : "#ef4444";
-                                            return (
-                                                <ResponsiveContainer width="100%" height="100%">
-                                                    <BarChart
-                                                        data={[
-                                                            { label: "Before", value: beforeVal, fill: "var(--muted)" },
-                                                            { label: "After", value: afterVal, fill: afterColor },
-                                                        ]}
-                                                        margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                                                    >
-                                                        <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                                                        <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={26} />
-                                                        <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                                                            <Cell fill="var(--muted)" />
-                                                            <Cell fill={afterColor} />
-                                                        </Bar>
-                                                    </BarChart>
-                                                </ResponsiveContainer>
-                                            );
-                                        })()
-                                    ) : (
-                                        <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
-                                            Run Test to visualize confidence change.
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </CardContent>
-                        <CardFooter className="shrink-0 border-t border-[var(--border)] bg-[var(--card)] px-6 py-3 flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                                <Button onClick={handleTestRule} disabled={editModalTesting}>
-                                    {editModalTesting ? "Testing…" : "Test"}
-                                </Button>
-                                <label className="text-sm text-[var(--muted)] shrink-0">Simulate:</label>
-                                <Select
-                                    value={testSimulateMode}
-                                    onChange={(e) => setTestSimulateMode(e.target.value as "positive" | "negative")}
-                                    className="w-44"
-                                    disabled={editModalTesting}
-                                >
-                                    <option value="positive">Positive (improved)</option>
-                                    <option value="negative">Negative (regression)</option>
-                                </Select>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Button variant="outline" onClick={() => setEditModal(null)}>
-                                    Cancel
-                                </Button>
-                                <Button
-                                    onClick={saveEditRule}
-                                    disabled={editModal.testOutput == null}
-                                    title={editModal.testOutput == null ? "Run Test first to enable Save" : undefined}
-                                >
-                                    Save (creates new version)
-                                </Button>
-                            </div>
-                        </CardFooter>
-                    </Card>
-                </div>
-            )}
             {valueEditModal && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
@@ -1400,52 +723,135 @@ export default function ApplicationDetailPage() {
                     </Card>
                 </div>
             )}
-            {rejectModal && (
+
+            {finalApproveOpen && (
                 <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
                     role="dialog"
                     aria-modal="true"
-                    aria-labelledby="reject-field-title"
-                    onClick={() => setRejectModal(null)}
+                    aria-labelledby="final-approve-title"
+                    onClick={() => setFinalApproveOpen(false)}
                 >
-                    <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-                        <CardHeader>
-                            <CardTitle id="reject-field-title">Reject field with reason</CardTitle>
+                    <Card className="w-full max-w-md shadow-lg" onClick={(e) => e.stopPropagation()}>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                            <CardTitle id="final-approve-title">Confirm approval</CardTitle>
+                            <Button type="button" variant="ghost" size="icon" onClick={() => setFinalApproveOpen(false)} aria-label="Close">
+                                <X className="h-4 w-4" />
+                            </Button>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <p className="text-sm text-[var(--muted)]">
-                                Please provide a reason for rejecting <span className="font-medium">{rejectModal.fieldKey}</span>.
+                                Final approval for <span className="font-medium text-[var(--foreground)]">{app.id}</span>. This marks the form as reviewed after all fields are approved.
                             </p>
-                            <textarea
-                                value={rejectModal.reason}
-                                onChange={(e) =>
-                                    setRejectModal((m) => (m ? { ...m, reason: e.target.value } : null))
-                                }
-                                rows={5}
-                                placeholder="Describe why this extracted value is incorrect."
-                                className="flex w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20"
-                            />
-                            <div className="flex flex-wrap gap-2 justify-end">
-                                <Button variant="outline" onClick={() => setRejectModal(null)}>
+                            <div className="flex justify-end gap-2">
+                                <Button type="button" variant="outline" onClick={() => setFinalApproveOpen(false)}>
                                     Cancel
                                 </Button>
                                 <Button
-                                    variant="outline"
-                                    onClick={() => submitFieldReject(rejectModal.fieldKey, rejectModal.reason, true)}
+                                    type="button"
+                                    onClick={() => {
+                                        setApplicationFinalApproved(id, true);
+                                        setFinalApproveNonce((n) => n + 1);
+                                        setFinalApproveOpen(false);
+                                    }}
                                 >
-                                    Submit and Edit Rule
-                                </Button>
-                                <Button
-                                    variant="destructive"
-                                    onClick={() => submitFieldReject(rejectModal.fieldKey, rejectModal.reason, false)}
-                                >
-                                    Submit and Skip Rule Editing
+                                    Confirm approval
                                 </Button>
                             </div>
                         </CardContent>
                     </Card>
                 </div>
             )}
+
+            {viewCatalogRuleField && (() => {
+                const rule = viewCatalogRuleField.ruleId ? getExtractionRule(viewCatalogRuleField.ruleId) : undefined;
+                if (!rule) return null;
+                const ro = "bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-90";
+                return (
+                    <div
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="catalog-rule-view-title"
+                        onClick={() => setViewCatalogRuleField(null)}
+                    >
+                        <Card className="w-full max-w-lg my-8 shadow-lg" onClick={(e) => e.stopPropagation()}>
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                                <CardTitle id="catalog-rule-view-title">Rule details (view only)</CardTitle>
+                                <Button type="button" variant="ghost" size="icon" onClick={() => setViewCatalogRuleField(null)} aria-label="Close">
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            </CardHeader>
+                            <CardContent className="space-y-4 max-h-[70vh] overflow-y-auto">
+                                <p className="text-xs text-[var(--muted)]">Field: Catalog Item · v{rule.version}</p>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Field Name</label>
+                                    <Input value={rule.name} disabled className={ro} readOnly />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Category</label>
+                                    <Select value={rule.categoryId} disabled className={ro}>
+                                        <option value={rule.categoryId}>{categoryById[rule.categoryId] ?? rule.categoryId}</option>
+                                    </Select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Description</label>
+                                    <textarea
+                                        value={rule.description ?? ""}
+                                        disabled
+                                        readOnly
+                                        rows={3}
+                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Role</label>
+                                    <textarea
+                                        value={rule.role ?? ""}
+                                        disabled
+                                        readOnly
+                                        rows={3}
+                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Guidelines</label>
+                                    <textarea
+                                        value={rule.prompt}
+                                        disabled
+                                        readOnly
+                                        rows={5}
+                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm font-mono text-xs", ro)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Example(s)</label>
+                                    <textarea
+                                        value="—"
+                                        disabled
+                                        readOnly
+                                        rows={2}
+                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Special instruction</label>
+                                    <textarea
+                                        value={rule.specialInstruction ?? ""}
+                                        disabled
+                                        readOnly
+                                        rows={2}
+                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
+                                    />
+                                </div>
+                                <Button type="button" variant="outline" className="w-full" onClick={() => setViewCatalogRuleField(null)}>
+                                    Close
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    </div>
+                );
+            })()}
         </div>
     );
 }

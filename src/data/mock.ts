@@ -232,6 +232,8 @@ export interface ExtractionRule {
   lastModified: string;
   lastEditedBy?: string;
   lastEditedAt?: string;
+  /** Published production version for this rule base (at most one per base). */
+  isPublished?: boolean;
 }
 
 export interface RuleFieldMapping {

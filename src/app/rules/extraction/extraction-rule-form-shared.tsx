@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { RuleCategory } from "@/data/mock";
 import { HdaPdfViewer, MOCK_HDA_OPTIONS } from "./hda-pdf-viewer";
+import { X } from "lucide-react";
 
 type SmartPromptEditorProps = {
   value: string;
@@ -345,11 +347,15 @@ export type ExtractionRuleFormFieldsProps = {
   specialInstruction: string;
   setSpecialInstruction: (v: string) => void;
   categoryName: string;
-  hasSubmitted: boolean;
-  updatedRuleText: string;
   onSubmit: () => void;
   submitDisabled: boolean;
   cancelSlot: ReactNode;
+  /** When true, name and category cannot be changed (edit flow). */
+  lockNameAndCategory?: boolean;
+  /** Rendered below "Back to details" on the test step (e.g. Publish). */
+  testStepExtra?: ReactNode;
+  /** New rule: require explicit confirmation of the field name (blur + before test step). */
+  fieldNameConfirmation?: boolean;
 };
 
 export function ExtractionRuleFormFields({
@@ -369,14 +375,72 @@ export function ExtractionRuleFormFields({
   specialInstruction,
   setSpecialInstruction,
   categoryName,
-  hasSubmitted,
-  updatedRuleText,
   onSubmit,
   submitDisabled,
   cancelSlot,
+  lockNameAndCategory = false,
+  testStepExtra,
+  fieldNameConfirmation = false,
 }: ExtractionRuleFormFieldsProps) {
   const [stepIndex, setStepIndex] = useState<0 | 1>(0);
   const [selectedHdaId, setSelectedHdaId] = useState<string>(MOCK_HDA_OPTIONS[0]?.id ?? "");
+  const [fieldNameModalOpen, setFieldNameModalOpen] = useState(false);
+  const fieldNameInputRef = useRef<HTMLInputElement>(null);
+  const confirmedFieldNameRef = useRef<string>("");
+  const advanceAfterFieldNameConfirmRef = useRef(false);
+
+  const openFieldNameConfirm = useCallback((advanceAfter: boolean) => {
+    advanceAfterFieldNameConfirmRef.current = advanceAfter;
+    setFieldNameModalOpen(true);
+  }, []);
+
+  const confirmFieldName = useCallback(() => {
+    confirmedFieldNameRef.current = name.trim();
+    setFieldNameModalOpen(false);
+    if (advanceAfterFieldNameConfirmRef.current) {
+      advanceAfterFieldNameConfirmRef.current = false;
+      onSubmit();
+      setStepIndex(1);
+    }
+  }, [name, onSubmit]);
+
+  const dismissFieldNameModal = useCallback(() => {
+    advanceAfterFieldNameConfirmRef.current = false;
+    setFieldNameModalOpen(false);
+    requestAnimationFrame(() => fieldNameInputRef.current?.focus());
+  }, []);
+
+  const tryGoToTestStep = useCallback(() => {
+    if (!fieldNameConfirmation || lockNameAndCategory) {
+      onSubmit();
+      setStepIndex(1);
+      return;
+    }
+    const t = name.trim();
+    if (!t) return;
+    if (t !== confirmedFieldNameRef.current) {
+      openFieldNameConfirm(true);
+      return;
+    }
+    onSubmit();
+    setStepIndex(1);
+  }, [fieldNameConfirmation, lockNameAndCategory, name, onSubmit, openFieldNameConfirm]);
+
+  const handleFieldNameBlur = useCallback(() => {
+    if (!fieldNameConfirmation || lockNameAndCategory) return;
+    const t = name.trim();
+    if (!t || t === confirmedFieldNameRef.current) return;
+    openFieldNameConfirm(false);
+  }, [fieldNameConfirmation, lockNameAndCategory, name, openFieldNameConfirm]);
+
+  useEffect(() => {
+    if (!fieldNameModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") dismissFieldNameModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fieldNameModalOpen, dismissFieldNameModal]);
   const selectedHda = useMemo(() => {
     return MOCK_HDA_OPTIONS.find((o) => o.id === selectedHdaId) ?? MOCK_HDA_OPTIONS[0];
   }, [selectedHdaId]);
@@ -444,13 +508,31 @@ export function ExtractionRuleFormFields({
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 items-start">
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Name</label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Applicant name from header" />
+                <label className="block text-sm font-medium mb-1">Field Name</label>
+                <Input
+                  ref={fieldNameInputRef}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onBlur={handleFieldNameBlur}
+                  placeholder="e.g. Applicant name from header"
+                  disabled={lockNameAndCategory}
+                  className={lockNameAndCategory ? "bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80" : undefined}
+                />
+                {fieldNameConfirmation && !lockNameAndCategory ? (
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    You will be asked to confirm this attribute name when you leave the field or continue to testing.
+                  </p>
+                ) : null}
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">Category</label>
-                <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                <Select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  disabled={lockNameAndCategory}
+                  className={lockNameAndCategory ? "bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80" : undefined}
+                >
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
@@ -525,14 +607,7 @@ export function ExtractionRuleFormFields({
               </div>
 
               <div className="flex flex-col gap-2">
-                <Button
-                  type="button"
-                  onClick={() => {
-                    onSubmit();
-                    setStepIndex(1);
-                  }}
-                  disabled={submitDisabled}
-                >
+                <Button type="button" onClick={tryGoToTestStep} disabled={submitDisabled}>
                   Move to next step to test it
                 </Button>
                 {cancelSlot}
@@ -568,12 +643,50 @@ export function ExtractionRuleFormFields({
                 <Button type="button" variant="outline" onClick={() => setStepIndex(0)}>
                   Back to details
                 </Button>
+                {testStepExtra}
                 {cancelSlot}
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {fieldNameModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="field-name-confirm-title"
+          onClick={dismissFieldNameModal}
+        >
+          <Card className="w-full max-w-md shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+              <CardTitle id="field-name-confirm-title" className="text-lg">
+                Confirm field name
+              </CardTitle>
+              <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={dismissFieldNameModal} aria-label="Close">
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-[var(--muted)]">
+                Use this attribute rule name?
+              </p>
+              <p className="mt-3 rounded-md border border-[var(--border)] bg-[var(--sidebar)]/40 px-3 py-2 text-sm font-medium">
+                {name.trim() || "—"}
+              </p>
+            </CardContent>
+            <CardFooter className="flex flex-wrap justify-end gap-2 border-t border-[var(--border)]">
+              <Button type="button" variant="outline" onClick={dismissFieldNameModal}>
+                Edit name
+              </Button>
+              <Button type="button" onClick={confirmFieldName}>
+                Confirm
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      )}
     </>
   );
 }
