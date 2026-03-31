@@ -271,14 +271,6 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="grid gap-4 sm:grid-cols-3">
                     <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3">
-                        <p className="text-xs text-[var(--muted)]">Supplier</p>
-                        <p className="text-2xl font-semibold">{overallBySupplier}%</p>
-                    </div>
-                    <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3">
-                        <p className="text-xs text-[var(--muted)]">Dosage</p>
-                        <p className="text-2xl font-semibold">{overallByDosage}%</p>
-                    </div>
-                    <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3">
                         <p className="text-xs text-[var(--muted)]">Overall</p>
                         <p className="text-2xl font-semibold">{overallAverage}%</p>
                     </div>
