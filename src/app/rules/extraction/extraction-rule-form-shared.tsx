@@ -449,7 +449,7 @@ export function ExtractionRuleFormFields({
     return (
       <div className="space-y-2 text-sm">
         <p>
-          <span className="font-medium">Field name:</span> {name.trim() || "—"}
+          <span className="font-medium">Output Field name:</span> {name.trim() || "—"}
         </p>
         <p>
           <span className="font-medium">Category:</span> {categoryName || "—"}
@@ -508,7 +508,7 @@ export function ExtractionRuleFormFields({
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 items-start">
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Field Name</label>
+                <label className="block text-sm font-medium mb-1">Output Field Name</label>
                 <Input
                   ref={fieldNameInputRef}
                   value={name}
@@ -555,20 +555,7 @@ export function ExtractionRuleFormFields({
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Role</label>
-                <textarea
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  rows={3}
-                  placeholder="e.g. You are a data steward in a procurement department. Your job is to extract a field from the HDA for creating item master. Be specific."
-                  className={cn(
-                    "flex min-h-[72px] w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20 disabled:cursor-not-allowed disabled:opacity-50"
-                  )}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Guidelines</label>
+                <label className="block text-sm font-medium mb-1">Rule</label>
                 <SmartPromptEditor value={prompt} onChange={setPrompt} placeholder="e.g. Extract the applicant's full name from the document header." />
               </div>
 
@@ -579,19 +566,6 @@ export function ExtractionRuleFormFields({
                   onChange={(e) => setExample(e.target.value)}
                   rows={3}
                   placeholder="Example"
-                  className={cn(
-                    "flex min-h-[72px] w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20 disabled:cursor-not-allowed disabled:opacity-50"
-                  )}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium">Special instruction</label>
-                <textarea
-                  value={specialInstruction}
-                  onChange={(e) => setSpecialInstruction(e.target.value)}
-                  rows={3}
-                  placeholder="Any special instruction for extraction"
                   className={cn(
                     "flex min-h-[72px] w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20 disabled:cursor-not-allowed disabled:opacity-50"
                   )}

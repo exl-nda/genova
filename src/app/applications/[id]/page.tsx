@@ -86,7 +86,9 @@ export default function ApplicationDetailPage() {
         mode: "accept_ocr" | "use_kg" | "manual";
         selectedKgValue: string;
         manualValue: string;
-        changeReason: "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error";
+        changeReason: "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error" | "Custom";
+        customReason: string;
+        useForFeedbackRule: boolean;
     } | null>(null);
     const [finalApproveOpen, setFinalApproveOpen] = useState(false);
     const [viewCatalogRuleField, setViewCatalogRuleField] = useState<ExtractedField | null>(null);
@@ -171,7 +173,7 @@ export default function ApplicationDetailPage() {
     const submitValueEdit = () => {
         if (!valueEditModal) return;
 
-        const { fieldKey, mode, selectedKgValue, manualValue, changeReason } = valueEditModal;
+        const { fieldKey, mode, selectedKgValue, manualValue, changeReason, customReason } = valueEditModal;
         const field = fields.find((x) => x.field === fieldKey);
         if (!field) return;
 
@@ -185,6 +187,10 @@ export default function ApplicationDetailPage() {
 
         if (isChangingValue && !changeReason) {
             setError("Please select why you are changing this value.");
+            return;
+        }
+        if (isChangingValue && changeReason === "Custom" && !customReason.trim()) {
+            setError("Please enter a custom reason.");
             return;
         }
         setFields((prev) =>
@@ -293,6 +299,8 @@ export default function ApplicationDetailPage() {
                                                             selectedKgValue: kg,
                                                             manualValue: f.value,
                                                             changeReason: "",
+                                                            customReason: "",
+                                                            useForFeedbackRule: true,
                                                         });
                                                     }}
                                                     aria-label={`Edit ${f.field}`}
@@ -696,13 +704,14 @@ export default function ApplicationDetailPage() {
                                     placeholder="Enter value"
                                 />
                             )}
+
                             <div>
                                 <label className="block text-sm font-medium mb-1">Why are you changing this?</label>
                                 <Select
                                     value={valueEditModal.changeReason}
                                     onChange={(e) =>
                                         setValueEditModal((m) =>
-                                            m ? { ...m, changeReason: e.target.value as "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error" } : null
+                                            m ? { ...m, changeReason: e.target.value as "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error" | "Custom" } : null
                                         )
                                     }
                                     className="w-full"
@@ -711,8 +720,32 @@ export default function ApplicationDetailPage() {
                                     <option value="Poor Image Quality">Poor Image Quality</option>
                                     <option value="Graph Missing Data">Graph Missing Data</option>
                                     <option value="Supplier Error">Supplier Error</option>
+                                    <option value="Custom">Custom</option>
                                 </Select>
                             </div>
+                            {valueEditModal.changeReason === "Custom" && (
+                                <Input
+                                    value={valueEditModal.customReason}
+                                    onChange={(e) =>
+                                        setValueEditModal((m) =>
+                                            m ? { ...m, customReason: e.target.value } : null
+                                        )
+                                    }
+                                    placeholder="Enter custom reason"
+                                />
+                            )}
+                            <label className="flex items-center gap-2 text-sm">
+                                <input
+                                    type="checkbox"
+                                    checked={valueEditModal.useForFeedbackRule}
+                                    onChange={(e) =>
+                                        setValueEditModal((m) =>
+                                            m ? { ...m, useForFeedbackRule: e.target.checked } : null
+                                        )
+                                    }
+                                />
+                                Use this for feedback Rule
+                            </label>
                             <div className="flex justify-end gap-2">
                                 <Button variant="outline" onClick={() => setValueEditModal(null)}>
                                     Cancel
@@ -785,7 +818,7 @@ export default function ApplicationDetailPage() {
                             <CardContent className="space-y-4 max-h-[70vh] overflow-y-auto">
                                 <p className="text-xs text-[var(--muted)]">Field: Catalog Item · v{rule.version}</p>
                                 <div>
-                                    <label className="block text-sm font-medium mb-1">Field Name</label>
+                                    <label className="block text-sm font-medium mb-1">Output Field Name</label>
                                     <Input value={rule.name} disabled className={ro} readOnly />
                                 </div>
                                 <div>
@@ -805,17 +838,7 @@ export default function ApplicationDetailPage() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium mb-1">Role</label>
-                                    <textarea
-                                        value={rule.role ?? ""}
-                                        disabled
-                                        readOnly
-                                        rows={3}
-                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Guidelines</label>
+                                    <label className="block text-sm font-medium mb-1">Rule</label>
                                     <textarea
                                         value={rule.prompt}
                                         disabled
@@ -828,16 +851,6 @@ export default function ApplicationDetailPage() {
                                     <label className="block text-sm font-medium mb-1">Example(s)</label>
                                     <textarea
                                         value="—"
-                                        disabled
-                                        readOnly
-                                        rows={2}
-                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Special instruction</label>
-                                    <textarea
-                                        value={rule.specialInstruction ?? ""}
                                         disabled
                                         readOnly
                                         rows={2}

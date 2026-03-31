@@ -27,6 +27,7 @@ export default function EditExtractionRulePage() {
   const categories = listCategories();
   const versions = listVersionsForRule(ruleBaseId);
   const versionFromQuery = searchParams.get("version");
+  const fieldNameFromQuery = searchParams.get("fieldName");
 
   // Redirect versioned id (ER1-v1.0) to base edit with version query
   useEffect(() => {
@@ -37,6 +38,7 @@ export default function EditExtractionRulePage() {
   }, [ruleBaseId, router]);
 
   const [selectedVersionId, setSelectedVersionId] = useState<string>("");
+  const [activeVersionNonce, setActiveVersionNonce] = useState(0);
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [description, setDescription] = useState("");
@@ -62,9 +64,15 @@ export default function EditExtractionRulePage() {
 
   // Sync form when selected version changes
   const selectedRule = selectedVersionId ? getExtractionRule(selectedVersionId) : undefined;
+  const isFieldNameOverride = Boolean(
+    fieldNameFromQuery &&
+    selectedRule &&
+    fieldNameFromQuery.trim() &&
+    fieldNameFromQuery.trim() !== selectedRule.name
+  );
   useEffect(() => {
     if (selectedRule) {
-      setName(selectedRule.name);
+      setName(fieldNameFromQuery?.trim() || selectedRule.name);
       setCategoryId(selectedRule.categoryId);
       setDescription(selectedRule.description ?? "");
       setRole(selectedRule.role ?? "");
@@ -72,14 +80,17 @@ export default function EditExtractionRulePage() {
       setExample("");
       setSpecialInstruction(selectedRule.specialInstruction ?? "");
     }
-  }, [selectedRule]);
+  }, [selectedRule, fieldNameFromQuery]);
 
   const categoryName = useMemo(
     () => categories.find((c) => c.id === categoryId)?.name ?? "",
     [categories, categoryId]
   );
 
-  const activeVersionId = getActiveRuleVersionId(ruleBaseId);
+  const activeVersionId = useMemo(
+    () => getActiveRuleVersionId(ruleBaseId),
+    [ruleBaseId, activeVersionNonce, selectedVersionId]
+  );
 
   const handleSubmit = () => {
     if (!selectedVersionId || !name.trim() || !categoryId) return;
@@ -102,6 +113,7 @@ export default function EditExtractionRulePage() {
   const handleSetActiveVersion = () => {
     if (!selectedVersionId) return;
     setActiveRuleVersionId(ruleBaseId, selectedVersionId);
+    setActiveVersionNonce((n) => n + 1);
   };
 
   const handleAddNewVersion = () => {
@@ -140,7 +152,7 @@ export default function EditExtractionRulePage() {
         </Link>
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Edit Extraction Rule</h1>
-          <p className="text-[var(--muted)] text-sm">{selectedRule?.name ?? ruleBaseId}</p>
+          <p className="text-[var(--muted)] text-sm">{fieldNameFromQuery?.trim() || selectedRule?.name || ruleBaseId}</p>
         </div>
       </div>
 
@@ -164,10 +176,10 @@ export default function EditExtractionRulePage() {
                 ))}
               </Select>
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={handleAddNewVersion}>
+            <Button type="button" variant="outline" size="sm" onClick={handleAddNewVersion} disabled={isFieldNameOverride}>
               <Plus className="h-4 w-4 mr-1" /> Add new version
             </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={handleSetActiveVersion} disabled={!selectedVersionId}>
+            <Button type="button" variant="secondary" size="sm" onClick={handleSetActiveVersion} disabled={!selectedVersionId || isFieldNameOverride}>
               <Pin className="h-4 w-4 mr-1" /> Set active version
             </Button>
           </div>
@@ -195,10 +207,10 @@ export default function EditExtractionRulePage() {
             setSpecialInstruction={setSpecialInstruction}
             categoryName={categoryName}
             onSubmit={handleSubmit}
-            submitDisabled={!name.trim() || !categoryId}
+            submitDisabled={!name.trim() || !categoryId || isFieldNameOverride}
             lockNameAndCategory
             testStepExtra={
-              <Button type="button" onClick={handlePublish} disabled={!selectedVersionId}>
+              <Button type="button" onClick={handlePublish} disabled={!selectedVersionId || isFieldNameOverride}>
                 Publish rule
               </Button>
             }

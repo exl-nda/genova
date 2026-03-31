@@ -28,9 +28,31 @@ import {
 } from "recharts";
 import Link from "next/link";
 
-const COMPETENCY_LABELS = ["Highly Intelligent", "Intelligent", "Needs Training"] as const;
+const CHART_LINE_COLORS = [
+    "var(--informational)",
+    "var(--safe)",
+    "var(--review)",
+    "hsl(280 50% 45%)",
+    "hsl(25 80% 45%)",
+    "hsl(200 60% 40%)",
+    "hsl(340 55% 48%)",
+    "hsl(160 45% 38%)",
+];
 
-type DimensionKind = "supplier" | "dosageType";
+function mergeAccuracySeries<K extends string>(
+    keys: readonly K[],
+    getSeries: (k: K) => { week: string; accuracy: number }[]
+): { week: string; [key: string]: string | number }[] {
+    const weeks = getSeries(keys[0]!).map((w) => w.week);
+    return weeks.map((week) => {
+        const row: { week: string; [key: string]: string | number } = { week };
+        for (const k of keys) {
+            const pt = getSeries(k).find((x) => x.week === week);
+            row[k] = pt?.accuracy ?? 0;
+        }
+        return row;
+    });
+}
 
 function avgConfidenceBySupplier(): { name: string; avgConfidence: number; count: number }[] {
     const bySupplier: Record<string, { sum: number; count: number }> = {};
@@ -68,76 +90,89 @@ function avgConfidenceByDosage(): { name: string; avgConfidence: number; count: 
     });
 }
 
-function competencyCounts(
-    dimension: DimensionKind,
-    selected: string | null
-): { label: string; count: number; fill: string }[] {
-    let apps = mockApplications;
-    if (selected) {
-        if (dimension === "supplier") apps = apps.filter((a) => a.supplier === selected);
-        else apps = apps.filter((a) => (a.dosageType ?? "Tablets") === selected);
-    }
-    const counts: Record<string, number> = {};
-    for (const l of COMPETENCY_LABELS) counts[l] = 0;
-    for (const app of apps) {
-        const label = app.competencyLevel;
-        if (COMPETENCY_LABELS.includes(label as (typeof COMPETENCY_LABELS)[number])) {
-            counts[label] = (counts[label] ?? 0) + 1;
-        } else {
-            counts["Needs Training"] = (counts["Needs Training"] ?? 0) + 1;
-        }
-    }
-    const colors: Record<string, string> = {
-        "Highly Intelligent": "var(--safe)",
-        Intelligent: "var(--informational)",
-        "Needs Training": "var(--review)",
-    };
-    return COMPETENCY_LABELS.map((label) => ({
-        label,
-        count: counts[label] ?? 0,
-        fill: colors[label] ?? "var(--muted)",
-    }));
-}
-
 export default function DashboardPage() {
-    const [dimension, setDimension] = useState<DimensionKind>("supplier");
-    const [selectedValue, setSelectedValue] = useState<string | null>(null);
+    const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
+    const [selectedDosage, setSelectedDosage] = useState<string | null>(null);
 
-    const confidenceData = useMemo(
-        () => (dimension === "supplier" ? avgConfidenceBySupplier() : avgConfidenceByDosage()),
-        [dimension]
+    const supplierBars = useMemo(() => avgConfidenceBySupplier(), []);
+    const dosageBars = useMemo(() => avgConfidenceByDosage(), []);
+
+    const selectedSupplierLabel = selectedSupplier || "All";
+    const selectedDosageLabel = selectedDosage || "All";
+    const overallBySupplier = useMemo(() => {
+        if (!supplierBars.length) return 0;
+        const sum = supplierBars.reduce((s, x) => s + x.avgConfidence, 0);
+        return Math.round((sum / supplierBars.length) * 10) / 10;
+    }, [supplierBars]);
+
+    const overallByDosage = useMemo(() => {
+        if (!dosageBars.length) return 0;
+        const sum = dosageBars.reduce((s, x) => s + x.avgConfidence, 0);
+        return Math.round((sum / dosageBars.length) * 10) / 10;
+    }, [dosageBars]);
+
+    const overallAverage = useMemo(
+        () => Math.round(((overallBySupplier + overallByDosage) / 2) * 10) / 10,
+        [overallBySupplier, overallByDosage]
     );
 
-    const options = dimension === "supplier" ? (SUPPLIERS as unknown as string[]) : (DOSAGE_TYPES as unknown as string[]);
-    const selectedLabel = selectedValue || "All";
+    const supplierBarsWithOthers = useMemo(() => {
+        const focus = selectedSupplier;
+        const rest = supplierBars.filter((x) => (focus ? x.name !== focus : true));
+        const others =
+            rest.length > 0
+                ? Math.round((rest.reduce((s, x) => s + x.avgConfidence, 0) / rest.length) * 10) / 10
+                : 0;
+        return [...supplierBars, { name: "Others", avgConfidence: others, count: rest.length }];
+    }, [supplierBars, selectedSupplier]);
 
-    const drillDownData = useMemo(
-        () => competencyCounts(dimension, selectedValue),
-        [dimension, selectedValue]
+    const dosageBarsWithOthers = useMemo(() => {
+        const focus = selectedDosage;
+        const rest = dosageBars.filter((x) => (focus ? x.name !== focus : true));
+        const others =
+            rest.length > 0
+                ? Math.round((rest.reduce((s, x) => s + x.avgConfidence, 0) / rest.length) * 10) / 10
+                : 0;
+        return [...dosageBars, { name: "Others", avgConfidence: others, count: rest.length }];
+    }, [dosageBars, selectedDosage]);
+
+    const supplierAccuracyMerged = useMemo(
+        () =>
+            mergeAccuracySeries(SUPPLIERS as unknown as Supplier[], (s) => mockAccuracyOverTimeBySupplier[s]),
+        []
     );
 
-    const dosageTypeConfidenceBars = useMemo(() => avgConfidenceByDosage(), []);
+    const dosageAccuracyMerged = useMemo(
+        () =>
+            mergeAccuracySeries(DOSAGE_TYPES as unknown as DosageType[], (d) => mockAccuracyOverTimeByDosage[d]),
+        []
+    );
 
-    const accuracyOverTime = useMemo(() => {
-        if (!selectedValue) return [];
-        if (dimension === "supplier") {
-            return mockAccuracyOverTimeBySupplier[selectedValue as Supplier] ?? [];
-        }
-        return mockAccuracyOverTimeByDosage[selectedValue as DosageType] ?? [];
-    }, [dimension, selectedValue]);
+    const supplierLineOpacity = (name: string) => {
+        if (!selectedSupplier) return 1;
+        return name === selectedSupplier ? 1 : 0.35;
+    };
 
-    const weightedAvgConfidence = useMemo(() => {
-        if (!selectedValue) {
-            const total = mockApplications.reduce((s, a) => s + a.confidence, 0);
-            return mockApplications.length ? Math.round((total / mockApplications.length) * 10) / 10 : 0;
-        }
-        let apps = mockApplications;
-        if (dimension === "supplier") apps = apps.filter((a) => a.supplier === selectedValue);
-        else apps = apps.filter((a) => (a.dosageType ?? "Tablets") === selectedValue);
+    const dosageLineOpacity = (name: string) => {
+        if (!selectedDosage) return 1;
+        return name === selectedDosage ? 1 : 0.35;
+    };
+
+    const supplierSelectedAvg = useMemo(() => {
+        if (!selectedSupplier) return null;
+        const apps = mockApplications.filter((a) => a.supplier === selectedSupplier);
         if (!apps.length) return 0;
         const total = apps.reduce((s, a) => s + a.confidence, 0);
         return Math.round((total / apps.length) * 10) / 10;
-    }, [dimension, selectedValue]);
+    }, [selectedSupplier]);
+
+    const dosageSelectedAvg = useMemo(() => {
+        if (!selectedDosage) return null;
+        const apps = mockApplications.filter((a) => (a.dosageType ?? "Tablets") === selectedDosage);
+        if (!apps.length) return 0;
+        const total = apps.reduce((s, a) => s + a.confidence, 0);
+        return Math.round((total / apps.length) * 10) / 10;
+    }, [selectedDosage]);
 
     return (
         <div className="space-y-6">
@@ -150,74 +185,59 @@ export default function DashboardPage() {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Dimension & selection</CardTitle>
-                    <p className="text-sm text-[var(--muted)]">
-                        Choose to view metrics by Supplier or Dosage Type, then optionally drill into one value.
-                    </p>
+                    <CardTitle>Overall Trust Score</CardTitle>
                 </CardHeader>
-                <CardContent className="flex flex-wrap items-center gap-4">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">View by</span>
-                        <Select
-                            value={dimension}
-                            onChange={(e) => {
-                                setDimension(e.target.value as DimensionKind);
-                                setSelectedValue(null);
-                            }}
-                            className="w-[160px]"
-                        >
-                            <option value="supplier">Supplier</option>
-                            <option value="dosageType">Dosage Type</option>
-                        </Select>
+                <CardContent className="grid gap-4 sm:grid-cols-3">
+                    <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3">
+                        <p className="text-xs text-[var(--muted)]">Avg by Supplier</p>
+                        <p className="text-2xl font-semibold">{overallBySupplier}%</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">Drill down</span>
-                        <Select
-                            value={selectedValue ?? ""}
-                            onChange={(e) => setSelectedValue(e.target.value || null)}
-                            className="w-[180px]"
-                        >
-                            <option value="">All</option>
-                            {options.map((opt) => (
-                                <option key={opt} value={opt}>
-                                    {opt}
-                                </option>
-                            ))}
-                        </Select>
+                    <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3">
+                        <p className="text-xs text-[var(--muted)]">Avg by Dosage</p>
+                        <p className="text-2xl font-semibold">{overallByDosage}%</p>
                     </div>
-                    {(selectedValue || dimension) && (
-                        <span className="text-sm text-[var(--muted)]">
-                            Showing: <strong>{selectedLabel}</strong>
-                        </span>
-                    )}
+                    <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3">
+                        <p className="text-xs text-[var(--muted)]">Combined Overall Trust Score</p>
+                        <p className="text-2xl font-semibold">{overallAverage}%</p>
+                    </div>
                 </CardContent>
             </Card>
 
             <div className="grid gap-6 lg:grid-cols-2">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Trust Score</CardTitle>
-                        <p className="text-sm text-[var(--muted)]">
-                            {selectedValue
-                                ? ``
-                                : `Average trust score by ${dimension === "supplier" ? "supplier" : ""}`}
-                        </p>
+                        <CardTitle>Trust Score by Supplier</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        {selectedValue && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">Drill down</span>
+                            <Select
+                                value={selectedSupplier ?? ""}
+                                onChange={(e) => setSelectedSupplier(e.target.value || null)}
+                                className="w-[200px]"
+                            >
+                                <option value="">All suppliers</option>
+                                {(SUPPLIERS as unknown as string[]).map((opt) => (
+                                    <option key={opt} value={opt}>
+                                        {opt}
+                                    </option>
+                                ))}
+                            </Select>
+                        </div>
+                        {selectedSupplier && supplierSelectedAvg != null && (
                             <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3 text-center">
                                 <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
-                                    Selected: {selectedLabel}
+                                    Selected: {selectedSupplierLabel}
                                 </p>
                                 <p className="text-2xl font-bold tabular-nums" style={{ color: "var(--informational)" }}>
-                                    {weightedAvgConfidence}%
+                                    {supplierSelectedAvg}%
                                 </p>
                             </div>
                         )}
                         <div className="h-[240px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart
-                                    data={confidenceData}
+                                    data={supplierBarsWithOthers}
                                     margin={{ top: 8, right: 8, left: 8, bottom: 24 }}
                                     layout="vertical"
                                 >
@@ -225,19 +245,19 @@ export default function DashboardPage() {
                                     <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
                                     <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11 }} />
                                     <Tooltip
-                                        formatter={(v: number | undefined) => [`${v != null ? v : 0}%`, "Avg confidence"]}
+                                        formatter={(v: number | undefined) => [`${v != null ? v : 0}%`, "Trust Score"]}
                                         labelFormatter={(label) => `${label}`}
                                     />
                                     <Bar dataKey="avgConfidence" name="Avg confidence" radius={[0, 4, 4, 0]} maxBarSize={32}>
-                                        {confidenceData.map((entry, i) => (
+                                        {supplierBarsWithOthers.map((entry) => (
                                             <Cell
                                                 key={entry.name}
                                                 fill={
-                                                    selectedValue && entry.name === selectedValue
+                                                    selectedSupplier && entry.name === selectedSupplier
                                                         ? "var(--informational)"
                                                         : "var(--muted)"
                                                 }
-                                                opacity={selectedValue && entry.name !== selectedValue ? 0.5 : 1}
+                                                opacity={selectedSupplier && entry.name !== selectedSupplier && entry.name !== "Others" ? 0.5 : 1}
                                             />
                                         ))}
                                     </Bar>
@@ -249,26 +269,38 @@ export default function DashboardPage() {
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Dosage type</CardTitle>
-                        <p className="text-sm text-[var(--muted)]">
-                            Average confidence by dosage type
-                        </p>
+                        <CardTitle>Trust Score by Dosage</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        {dimension === "dosageType" && selectedValue && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">Drill down</span>
+                            <Select
+                                value={selectedDosage ?? ""}
+                                onChange={(e) => setSelectedDosage(e.target.value || null)}
+                                className="w-[200px]"
+                            >
+                                <option value="">All dosage types</option>
+                                {(DOSAGE_TYPES as unknown as string[]).map((opt) => (
+                                    <option key={opt} value={opt}>
+                                        {opt}
+                                    </option>
+                                ))}
+                            </Select>
+                        </div>
+                        {selectedDosage && dosageSelectedAvg != null && (
                             <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3 text-center">
                                 <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
-                                    Selected: {selectedLabel}
+                                    Selected: {selectedDosageLabel}
                                 </p>
                                 <p className="text-2xl font-bold tabular-nums" style={{ color: "var(--informational)" }}>
-                                    {weightedAvgConfidence}%
+                                    {dosageSelectedAvg}%
                                 </p>
                             </div>
                         )}
                         <div className="h-[240px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart
-                                    data={dosageTypeConfidenceBars}
+                                    data={dosageBarsWithOthers}
                                     margin={{ top: 8, right: 8, left: 8, bottom: 24 }}
                                     layout="vertical"
                                 >
@@ -276,20 +308,20 @@ export default function DashboardPage() {
                                     <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
                                     <YAxis type="category" dataKey="name" width={88} tick={{ fontSize: 11 }} />
                                     <Tooltip
-                                        formatter={(v: number | undefined) => [`${v != null ? v : 0}%`, "Avg confidence"]}
+                                        formatter={(v: number | undefined) => [`${v != null ? v : 0}%`, "Trust Score"]}
                                         labelFormatter={(label) => `${label}`}
                                     />
                                     <Bar dataKey="avgConfidence" name="Avg confidence" radius={[0, 4, 4, 0]} maxBarSize={32}>
-                                        {dosageTypeConfidenceBars.map((entry) => (
+                                        {dosageBarsWithOthers.map((entry) => (
                                             <Cell
                                                 key={entry.name}
                                                 fill={
-                                                    dimension === "dosageType" && selectedValue && entry.name === selectedValue
+                                                    selectedDosage && entry.name === selectedDosage
                                                         ? "var(--informational)"
                                                         : "var(--muted)"
                                                 }
                                                 opacity={
-                                                    dimension === "dosageType" && selectedValue && entry.name !== selectedValue
+                                                    selectedDosage && entry.name !== selectedDosage
                                                         ? 0.5
                                                         : 1
                                                 }
@@ -302,7 +334,7 @@ export default function DashboardPage() {
                     </CardContent>
                 </Card>
 
-                <Card className="lg:col-span-2">
+                {/* <Card className="lg:col-span-2">
                     <CardHeader>
                         <CardTitle>Intelligence mix for selection</CardTitle>
                         <p className="text-sm text-[var(--muted)]">
@@ -340,48 +372,80 @@ export default function DashboardPage() {
                             ))}
                         </div>
                     </CardContent>
-                </Card>
+                </Card> */}
             </div>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Accuracy over time</CardTitle>
-                    <p className="text-sm text-[var(--muted)]">
-                        {selectedValue
-                            ? `Accuracy trend for ${selectedLabel}`
-                            : "Select a supplier or dosage type above to see accuracy over time."}
-                    </p>
-                </CardHeader>
-                <CardContent>
-                    {selectedValue && accuracyOverTime.length > 0 ? (
-                        <div className="h-[280px]">
+            <div className="grid gap-6 lg:grid-cols-2">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Accuracy over time (Supplier)</CardTitle>
+                        <p className="text-sm text-[var(--muted)]">
+                            Weekly accuracy trend for each supplier. Supplier drill-down selection is reflected here.
+                        </p>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="h-[260px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={accuracyOverTime} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                                <LineChart data={supplierAccuracyMerged} margin={{ top: 8, right: 8, left: 4, bottom: 8 }}>
                                     <CartesianGrid strokeDasharray="3 3" className="stroke-[var(--border)]" />
-                                    <XAxis dataKey="week" tick={{ fontSize: 12 }} />
-                                    <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
-                                    <Tooltip
-                                        formatter={(v: number | undefined) => [v != null ? `${v}%` : "", "Accuracy"]}
-                                    />
-                                    <Legend />
-                                    <Line
-                                        type="monotone"
-                                        dataKey="accuracy"
-                                        name="Accuracy"
-                                        stroke="var(--informational)"
-                                        strokeWidth={2}
-                                        dot={{ r: 4 }}
-                                    />
+                                    <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={36} />
+                                    <Tooltip formatter={(v: number | undefined) => [v != null ? `${v}%` : "", "Accuracy"]} />
+                                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                                    {(SUPPLIERS as unknown as string[]).map((name, i) => (
+                                        <Line
+                                            key={name}
+                                            type="monotone"
+                                            dataKey={name}
+                                            name={name}
+                                            stroke={CHART_LINE_COLORS[i % CHART_LINE_COLORS.length]}
+                                            strokeWidth={2}
+                                            dot={{ r: 3 }}
+                                            strokeOpacity={supplierLineOpacity(name)}
+                                            opacity={supplierLineOpacity(name)}
+                                        />
+                                    ))}
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
-                    ) : (
-                        <div className="flex h-[200px] items-center justify-center rounded-lg border border-dashed border-[var(--border)] text-sm text-[var(--muted)]">
-                            Select a {dimension === "supplier" ? "supplier" : "dosage type"} to view accuracy over time
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Accuracy over time (Dosage type)</CardTitle>
+                        <p className="text-sm text-[var(--muted)]">
+                            Weekly accuracy trend for each dosage type. Dosage drill-down selection is reflected here.
+                        </p>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="h-[260px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={dosageAccuracyMerged} margin={{ top: 8, right: 8, left: 4, bottom: 8 }}>
+                                    <CartesianGrid strokeDasharray="3 3" className="stroke-[var(--border)]" />
+                                    <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={36} />
+                                    <Tooltip formatter={(v: number | undefined) => [v != null ? `${v}%` : "", "Accuracy"]} />
+                                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                                    {(DOSAGE_TYPES as unknown as string[]).map((name, i) => (
+                                        <Line
+                                            key={name}
+                                            type="monotone"
+                                            dataKey={name}
+                                            name={name}
+                                            stroke={CHART_LINE_COLORS[i % CHART_LINE_COLORS.length]}
+                                            strokeWidth={2}
+                                            dot={{ r: 3 }}
+                                            strokeOpacity={dosageLineOpacity(name)}
+                                            opacity={dosageLineOpacity(name)}
+                                        />
+                                    ))}
+                                </LineChart>
+                            </ResponsiveContainer>
                         </div>
-                    )}
-                </CardContent>
-            </Card>
+                    </CardContent>
+                </Card>
+            </div>
 
             {/* Extraction rule performance: top 5 by precision, bottom 5 underperforming */}
             <Card>
