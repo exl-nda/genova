@@ -98,7 +98,7 @@ export default function ApplicationDetailPage() {
     const categoryById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c.name])), [categories]);
     const reviewStatusLabel = useMemo(() => {
         const s = getApplicationReviewStatus(id);
-        if (s === "under_review") return "Under-review";
+        if (s === "under_review") return "Under Review";
         if (s === "ready_for_review") return "Ready for Review";
         return "Reviewed";
     }, [id, fields, finalApproveNonce]);
@@ -724,14 +724,16 @@ export default function ApplicationDetailPage() {
                                 </Select>
                             </div>
                             {valueEditModal.changeReason === "Custom" && (
-                                <Input
+                                <textarea
                                     value={valueEditModal.customReason}
                                     onChange={(e) =>
                                         setValueEditModal((m) =>
                                             m ? { ...m, customReason: e.target.value } : null
                                         )
                                     }
+                                    rows={3}
                                     placeholder="Enter custom reason"
+                                    className="flex w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm"
                                 />
                             )}
                             <label className="flex items-center gap-2 text-sm">
@@ -744,7 +746,7 @@ export default function ApplicationDetailPage() {
                                         )
                                     }
                                 />
-                                Use this for feedback Rule
+                                Use this for Rule Feedback
                             </label>
                             <div className="flex justify-end gap-2">
                                 <Button variant="outline" onClick={() => setValueEditModal(null)}>

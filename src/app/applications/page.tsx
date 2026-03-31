@@ -21,15 +21,15 @@ import { getApplicationReviewStatus, type ApplicationReviewStatus } from "@/data
 import { Eye, UserPlus, RotateCcw } from "lucide-react";
 
 function reviewStatusLabel(s: ApplicationReviewStatus): string {
-    if (s === "under_review") return "Under-review";
+    if (s === "under_review") return "Under Review";
     if (s === "ready_for_review") return "Ready for Review";
     return "Reviewed";
 }
 
-function reviewStatusVariant(s: ApplicationReviewStatus): "safe" | "review" | "risk" {
+function reviewStatusVariant(s: ApplicationReviewStatus): "safe" | "review" | "informational" {
     if (s === "reviewed") return "safe";
     if (s === "ready_for_review") return "review";
-    return "risk";
+    return "informational";
 }
 
 function ApplicationsContent() {
@@ -78,7 +78,7 @@ function ApplicationsContent() {
                                 }
                             >
                                 <option value="all">All</option>
-                                <option value="under_review">Under-review</option>
+                                <option value="under_review">Under Review</option>
                                 <option value="ready_for_review">Ready for Review</option>
                                 <option value="reviewed">Reviewed</option>
                             </Select>
@@ -118,7 +118,7 @@ function ApplicationsContent() {
                             <TableRow>
                                 <TableHead>NDC</TableHead>
                                 <TableHead>Supplier</TableHead>
-                                <TableHead>Trsut Score</TableHead>
+                                <TableHead>Trust Score</TableHead>
                                 <TableHead>Competency Level</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Timestamp</TableHead>
@@ -136,7 +136,7 @@ function ApplicationsContent() {
                                                 ? "bg-emerald-50/50"
                                                 : rs === "ready_for_review"
                                                   ? "bg-amber-50/50"
-                                                  : "bg-red-50/50"
+                                                  : "bg-blue-50/50"
                                         }
                                     >
                                         <TableCell className="font-medium">{app.id}</TableCell>

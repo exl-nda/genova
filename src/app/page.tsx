@@ -54,6 +54,17 @@ function mergeAccuracySeries<K extends string>(
     });
 }
 
+function addOthersSeries(
+    rows: { week: string; [key: string]: string | number }[],
+    keys: string[]
+): { week: string; [key: string]: string | number }[] {
+    return rows.map((row) => {
+        const sum = keys.reduce((acc, key) => acc + Number(row[key] ?? 0), 0);
+        const avg = keys.length ? sum / keys.length : 0;
+        return { ...row, Others: Math.round(avg * 10) / 10 };
+    });
+}
+
 function avgConfidenceBySupplier(): { name: string; avgConfidence: number; count: number }[] {
     const bySupplier: Record<string, { sum: number; count: number }> = {};
     for (const app of mockApplications) {
@@ -90,6 +101,12 @@ function avgConfidenceByDosage(): { name: string; avgConfidence: number; count: 
     });
 }
 
+function avgLatestAccuracy(values: { week: string; accuracy: number }[]): number {
+    if (!values.length) return 0;
+    const recent = values.slice(-2);
+    return recent.reduce((sum, row) => sum + row.accuracy, 0) / recent.length;
+}
+
 export default function DashboardPage() {
     const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
     const [selectedDosage, setSelectedDosage] = useState<string | null>(null);
@@ -100,21 +117,47 @@ export default function DashboardPage() {
     const selectedSupplierLabel = selectedSupplier || "All";
     const selectedDosageLabel = selectedDosage || "All";
     const overallBySupplier = useMemo(() => {
-        if (!supplierBars.length) return 0;
-        const sum = supplierBars.reduce((s, x) => s + x.avgConfidence, 0);
-        return Math.round((sum / supplierBars.length) * 10) / 10;
+        const weighted = supplierBars.reduce(
+            (acc, supplier) => {
+                const series = mockAccuracyOverTimeBySupplier[supplier.name as Supplier] ?? [];
+                const latestAccuracy = avgLatestAccuracy(series);
+                // Trust score blends extraction confidence with recent observed accuracy.
+                const trustScore = supplier.avgConfidence * 0.7 + latestAccuracy * 0.3;
+                return {
+                    totalScore: acc.totalScore + trustScore * supplier.count,
+                    totalCount: acc.totalCount + supplier.count,
+                };
+            },
+            { totalScore: 0, totalCount: 0 }
+        );
+        if (!weighted.totalCount) return 0;
+        return Math.round((weighted.totalScore / weighted.totalCount) * 10) / 10;
     }, [supplierBars]);
 
     const overallByDosage = useMemo(() => {
-        if (!dosageBars.length) return 0;
-        const sum = dosageBars.reduce((s, x) => s + x.avgConfidence, 0);
-        return Math.round((sum / dosageBars.length) * 10) / 10;
+        const weighted = dosageBars.reduce(
+            (acc, dosage) => {
+                const series = mockAccuracyOverTimeByDosage[dosage.name as DosageType] ?? [];
+                const latestAccuracy = avgLatestAccuracy(series);
+                const trustScore = dosage.avgConfidence * 0.7 + latestAccuracy * 0.3;
+                return {
+                    totalScore: acc.totalScore + trustScore * dosage.count,
+                    totalCount: acc.totalCount + dosage.count,
+                };
+            },
+            { totalScore: 0, totalCount: 0 }
+        );
+        if (!weighted.totalCount) return 0;
+        return Math.round((weighted.totalScore / weighted.totalCount) * 10) / 10;
     }, [dosageBars]);
 
-    const overallAverage = useMemo(
-        () => Math.round(((overallBySupplier + overallByDosage) / 2) * 10) / 10,
-        [overallBySupplier, overallByDosage]
-    );
+    const overallAverage = useMemo(() => {
+        const total = mockApplications.length;
+        if (!total) return 0;
+        // Keeps both Supplier and Dosage influence while weighting by dataset size.
+        const score = (overallBySupplier * total + overallByDosage * total) / (total * 2);
+        return Math.round(score * 10) / 10;
+    }, [overallBySupplier, overallByDosage]);
 
     const supplierBarsWithOthers = useMemo(() => {
         const focus = selectedSupplier;
@@ -136,17 +179,17 @@ export default function DashboardPage() {
         return [...dosageBars, { name: "Others", avgConfidence: others, count: rest.length }];
     }, [dosageBars, selectedDosage]);
 
-    const supplierAccuracyMerged = useMemo(
-        () =>
-            mergeAccuracySeries(SUPPLIERS as unknown as Supplier[], (s) => mockAccuracyOverTimeBySupplier[s]),
-        []
-    );
+    const supplierAccuracyMerged = useMemo(() => {
+        const keys = SUPPLIERS as unknown as string[];
+        const merged = mergeAccuracySeries(SUPPLIERS as unknown as Supplier[], (s) => mockAccuracyOverTimeBySupplier[s]);
+        return addOthersSeries(merged, keys);
+    }, []);
 
-    const dosageAccuracyMerged = useMemo(
-        () =>
-            mergeAccuracySeries(DOSAGE_TYPES as unknown as DosageType[], (d) => mockAccuracyOverTimeByDosage[d]),
-        []
-    );
+    const dosageAccuracyMerged = useMemo(() => {
+        const keys = DOSAGE_TYPES as unknown as string[];
+        const merged = mergeAccuracySeries(DOSAGE_TYPES as unknown as DosageType[], (d) => mockAccuracyOverTimeByDosage[d]);
+        return addOthersSeries(merged, keys);
+    }, []);
 
     const supplierLineOpacity = (name: string) => {
         if (!selectedSupplier) return 1;
@@ -160,19 +203,25 @@ export default function DashboardPage() {
 
     const supplierSelectedAvg = useMemo(() => {
         if (!selectedSupplier) return null;
+        if (selectedSupplier === "Others") {
+            return supplierBarsWithOthers.find((x) => x.name === "Others")?.avgConfidence ?? 0;
+        }
         const apps = mockApplications.filter((a) => a.supplier === selectedSupplier);
         if (!apps.length) return 0;
         const total = apps.reduce((s, a) => s + a.confidence, 0);
         return Math.round((total / apps.length) * 10) / 10;
-    }, [selectedSupplier]);
+    }, [selectedSupplier, supplierBarsWithOthers]);
 
     const dosageSelectedAvg = useMemo(() => {
         if (!selectedDosage) return null;
+        if (selectedDosage === "Others") {
+            return dosageBarsWithOthers.find((x) => x.name === "Others")?.avgConfidence ?? 0;
+        }
         const apps = mockApplications.filter((a) => (a.dosageType ?? "Tablets") === selectedDosage);
         if (!apps.length) return 0;
         const total = apps.reduce((s, a) => s + a.confidence, 0);
         return Math.round((total / apps.length) * 10) / 10;
-    }, [selectedDosage]);
+    }, [selectedDosage, dosageBarsWithOthers]);
 
     return (
         <div className="space-y-6">
@@ -185,19 +234,19 @@ export default function DashboardPage() {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Overall Trust Score</CardTitle>
+                    <CardTitle>Trust Score</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 sm:grid-cols-3">
                     <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3">
-                        <p className="text-xs text-[var(--muted)]">Avg by Supplier</p>
+                        <p className="text-xs text-[var(--muted)]">Supplier</p>
                         <p className="text-2xl font-semibold">{overallBySupplier}%</p>
                     </div>
                     <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3">
-                        <p className="text-xs text-[var(--muted)]">Avg by Dosage</p>
+                        <p className="text-xs text-[var(--muted)]">Dosage</p>
                         <p className="text-2xl font-semibold">{overallByDosage}%</p>
                     </div>
                     <div className="rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3">
-                        <p className="text-xs text-[var(--muted)]">Combined Overall Trust Score</p>
+                        <p className="text-xs text-[var(--muted)]">Overall</p>
                         <p className="text-2xl font-semibold">{overallAverage}%</p>
                     </div>
                 </CardContent>
@@ -206,15 +255,12 @@ export default function DashboardPage() {
             <div className="grid gap-6 lg:grid-cols-2">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Trust Score by Supplier</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">Drill down</span>
+                        <div className="flex items-center justify-between gap-3">
+                            <CardTitle>Trust Score by Supplier</CardTitle>
                             <Select
                                 value={selectedSupplier ?? ""}
                                 onChange={(e) => setSelectedSupplier(e.target.value || null)}
-                                className="w-[200px]"
+                                className="w-[180px]"
                             >
                                 <option value="">All suppliers</option>
                                 {(SUPPLIERS as unknown as string[]).map((opt) => (
@@ -222,8 +268,11 @@ export default function DashboardPage() {
                                         {opt}
                                     </option>
                                 ))}
+                                <option value="Others">Others</option>
                             </Select>
                         </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
                         {selectedSupplier && supplierSelectedAvg != null && (
                             <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3 text-center">
                                 <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
@@ -269,15 +318,12 @@ export default function DashboardPage() {
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Trust Score by Dosage</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">Drill down</span>
+                        <div className="flex items-center justify-between gap-3">
+                            <CardTitle>Trust Score by Dosage Type</CardTitle>
                             <Select
                                 value={selectedDosage ?? ""}
                                 onChange={(e) => setSelectedDosage(e.target.value || null)}
-                                className="w-[200px]"
+                                className="w-[180px]"
                             >
                                 <option value="">All dosage types</option>
                                 {(DOSAGE_TYPES as unknown as string[]).map((opt) => (
@@ -285,8 +331,11 @@ export default function DashboardPage() {
                                         {opt}
                                     </option>
                                 ))}
+                                <option value="Others">Others</option>
                             </Select>
                         </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
                         {selectedDosage && dosageSelectedAvg != null && (
                             <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3 text-center">
                                 <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
@@ -392,7 +441,7 @@ export default function DashboardPage() {
                                     <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={36} />
                                     <Tooltip formatter={(v: number | undefined) => [v != null ? `${v}%` : "", "Accuracy"]} />
                                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                                    {(SUPPLIERS as unknown as string[]).map((name, i) => (
+                                    {[...(SUPPLIERS as unknown as string[]), "Others"].map((name, i) => (
                                         <Line
                                             key={name}
                                             type="monotone"
@@ -427,7 +476,7 @@ export default function DashboardPage() {
                                     <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={36} />
                                     <Tooltip formatter={(v: number | undefined) => [v != null ? `${v}%` : "", "Accuracy"]} />
                                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                                    {(DOSAGE_TYPES as unknown as string[]).map((name, i) => (
+                                    {[...(DOSAGE_TYPES as unknown as string[]), "Others"].map((name, i) => (
                                         <Line
                                             key={name}
                                             type="monotone"
