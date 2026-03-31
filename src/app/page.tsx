@@ -452,10 +452,8 @@ export default function DashboardPage() {
             <div className="grid gap-6 lg:grid-cols-2">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Accuracy over time (Supplier)</CardTitle>
-                        <p className="text-sm text-[var(--muted)]">
-                            Weekly accuracy trend for each supplier. Supplier drill-down selection is reflected here.
-                        </p>
+                        <CardTitle>Trust Score over time (Supplier)</CardTitle>
+
                     </CardHeader>
                     <CardContent>
                         <div className="h-[260px]">
@@ -494,10 +492,7 @@ export default function DashboardPage() {
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Accuracy over time (Dosage type)</CardTitle>
-                        <p className="text-sm text-[var(--muted)]">
-                            Weekly accuracy trend for each dosage type. Dosage drill-down selection is reflected here.
-                        </p>
+                        <CardTitle>Trust Score over time (Dosage type)</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="h-[260px]">

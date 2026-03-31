@@ -746,7 +746,7 @@ export default function ApplicationDetailPage() {
                                         )
                                     }
                                 />
-                                Use this for Rule Feedback
+                                Use this for Feedback Loop
                             </label>
                             <div className="flex justify-end gap-2">
                                 <Button variant="outline" onClick={() => setValueEditModal(null)}>
