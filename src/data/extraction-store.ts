@@ -393,6 +393,30 @@ export type ApplicationReviewStatus = "under_review" | "ready_for_review" | "rev
 
 const applicationFinalApproved: Record<string, boolean> = {};
 
+function initializeMockReviewStatuses(): void {
+    // Seed a realistic mix once: reviewed, ready for review, and under-review.
+    if (Object.keys(fieldDecisions).length > 0) return;
+    if (mockApplications.length < 3) return;
+
+    const reviewedAppId = mockApplications[0]!.id;
+    const readyAppId = mockApplications[1]!.id;
+    const underReviewAppId = mockApplications[2]!.id;
+
+    const reviewedFields = getExtractedFieldsForApplication(reviewedAppId);
+    reviewedFields.forEach((f) => setFieldDecision(reviewedAppId, f.field, "approved"));
+    applicationFinalApproved[reviewedAppId] = true;
+
+    const readyFields = getExtractedFieldsForApplication(readyAppId);
+    readyFields.forEach((f) => setFieldDecision(readyAppId, f.field, "approved"));
+    applicationFinalApproved[readyAppId] = false;
+
+    const underReviewFields = getExtractedFieldsForApplication(underReviewAppId);
+    underReviewFields.slice(0, Math.max(1, Math.floor(underReviewFields.length / 3))).forEach((f) =>
+        setFieldDecision(underReviewAppId, f.field, "approved")
+    );
+}
+initializeMockReviewStatuses();
+
 export function getApplicationFinalApproved(applicationId: string): boolean {
     return applicationFinalApproved[applicationId] === true;
 }

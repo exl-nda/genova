@@ -7,6 +7,7 @@ import {
     BookOpen,
     Brain,
     BarChart3,
+    FlaskConical,
     PanelLeftClose,
     PanelLeft,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const navItems = [
     { href: "/applications", label: "HDA Forms", icon: FileStack },
     { href: "/rules", label: "Rules Management", icon: BookOpen },
     { href: "/competency", label: "Competency Model", icon: Brain },
+    { href: "/methodology", label: "Score Methodology", icon: FlaskConical },
 ];
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
