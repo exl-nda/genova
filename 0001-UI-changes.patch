@@ -1,0 +1,2262 @@
+From 75e4f9f8582a306f379f82215f81c3d7d352d767 Mon Sep 17 00:00:00 2001
+From: divya515 <divyashukla515@gmail.com>
+Date: Mon, 30 Mar 2026 23:14:11 +0530
+Subject: [PATCH] UI changes
+
+---
+ src/app/applications/[id]/page.tsx            | 936 ++++--------------
+ src/app/applications/page.tsx                 |  93 +-
+ src/app/competency/page.tsx                   |  71 +-
+ src/app/page.tsx                              |  72 +-
+ src/app/rules/extraction/[id]/edit/page.tsx   |  72 +-
+ .../extraction-rule-form-shared.tsx           | 145 ++-
+ src/app/rules/extraction/new/page.tsx         |  66 +-
+ src/app/rules/page.tsx                        |  44 +-
+ src/components/shell/header.tsx               |   3 -
+ src/data/extraction-store.ts                  |  53 +
+ src/data/mock.ts                              |   2 +
+ 11 files changed, 617 insertions(+), 940 deletions(-)
+
+diff --git a/src/app/applications/[id]/page.tsx b/src/app/applications/[id]/page.tsx
+index c70e28f..50123a5 100644
+--- a/src/app/applications/[id]/page.tsx
++++ b/src/app/applications/[id]/page.tsx
+@@ -2,19 +2,12 @@
+ 
+ import React from "react";
+ import { useParams } from "next/navigation";
+-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
++import { useState, useRef, useEffect, useMemo } from "react";
+ import Link from "next/link";
+ import dynamic from "next/dynamic";
+-import {
+-    Table,
+-    TableBody,
+-    TableCell,
+-    TableHead,
+-    TableHeader,
+-    TableRow,
+-} from "@/components/ui/table";
++import { cn } from "@/lib/utils";
+ import { Button, buttonVariants } from "@/components/ui/button";
+-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { Badge } from "@/components/ui/badge";
+ import { Input } from "@/components/ui/input";
+ import { Select } from "@/components/ui/select";
+@@ -22,19 +15,17 @@ import { mockApplications } from "@/data/mock";
+ import {
+     getExtractedFieldsForApplication,
+     getExtractionRule,
+-    listVersionsForRule,
+-    editRuleFromField,
+-    reprocessField,
+     getFieldDecision,
+-    getFieldDecisionReason,
+     setFieldDecision,
+-    DOCUMENT_FIELD_KEYS,
++    getApplicationFinalApproved,
++    setApplicationFinalApproved,
++    getApplicationReviewStatus,
++    listCategories,
+ } from "@/data/extraction-store";
+ import type { ExtractedField } from "@/data/mock";
+-import { ArrowLeft, FileText, Check, X, Edit, MessageCircle, ChevronDown, ChevronLeft, ChevronRight, RefreshCw, ZoomIn, ZoomOut, Maximize2, Minimize2 } from "lucide-react";
++import { ArrowLeft, Check, Edit, ChevronDown, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Minimize2, X } from "lucide-react";
+ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from "recharts";
+ 
+ const PdfDocument = dynamic(async () => (await import("react-pdf")).Document, { ssr: false });
+ const PdfPage = dynamic(async () => (await import("react-pdf")).Page, { ssr: false });
+@@ -64,333 +55,6 @@ const MOCK_HIGHLIGHT_BOXES: Array<{ x: number; y: number; w: number; h: number }
+     { x: 0.09, y: 0.4, w: 0.75, h: 0.055 },
+ ];
+ 
+-type SmartPromptEditorProps = {
+-    value: string;
+-    onChange: (next: string) => void;
+-    placeholder?: string;
+-};
+-
+-function escapeHtml(input: string): string {
+-    return input
+-        .replaceAll("&", "&amp;")
+-        .replaceAll("<", "&lt;")
+-        .replaceAll(">", "&gt;")
+-        .replaceAll('"', "&quot;")
+-        .replaceAll("'", "&#039;");
+-}
+-
+-function SmartPromptEditor({ value, onChange, placeholder }: SmartPromptEditorProps) {
+-    const editorRef = useRef<HTMLDivElement>(null);
+-    const baselineRef = useRef(value ?? "");
+-    const isFocusedRef = useRef(false);
+-    const [query, setQuery] = useState("");
+-    const [trigger, setTrigger] = useState<"/" | "#" | null>(null);
+-    const [showSuggestions, setShowSuggestions] = useState(false);
+-    const [activeIndex, setActiveIndex] = useState(0);
+-    const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+-    const pendingCaretRef = useRef<number | null>(null);
+-
+-    const keywords = useMemo(
+-        () => [
+-            "NDA",
+-            "PM",
+-            "505(b)(1)",
+-            "Generic Indicator",
+-            "Vendor ID",
+-            "Catalog Item",
+-            "Load TBA",
+-            "SVC LVL Catgy",
+-            "MCK-GPC",
+-            "DSCSA Exempt",
+-            "NRDC",
+-            "SRC",
+-            "Snowflake",
+-        ],
+-        []
+-    );
+-
+-    const dictionary = useMemo(
+-        () =>
+-            new Set(
+-                [
+-                    ...keywords,
+-                    "Extract", "extract", "from", "the", "under", "section", "value", "if", "then",
+-                    "and", "or", "with", "for", "field", "product", "information", "application",
+-                    "type", "generic", "drug", "indicator", "vendor", "name", "id", "table", "always",
+-                    "is", "not", "in", "to", "of", "on", "by", "review", "alert", "query", "dynamic",
+-                ].map((w) => w.toLowerCase())
+-            ),
+-        [keywords]
+-    );
+-
+-    const suggestions = useMemo(() => {
+-        if (!query.trim()) return keywords.slice(0, 8);
+-        const q = query.toLowerCase();
+-        return keywords.filter((k) => k.toLowerCase().includes(q)).slice(0, 8);
+-    }, [keywords, query]);
+-
+-    const keywordTokens = useMemo(() => {
+-        const set = new Set<string>();
+-        for (const phrase of keywords) {
+-            for (const token of phrase.split(/\s+/)) {
+-                if (token.trim()) set.add(token.toLowerCase());
+-            }
+-        }
+-        return set;
+-    }, [keywords]);
+-
+-    const getWordKey = (token: string) =>
+-        token
+-            .replace(/^[^A-Za-z0-9(]+|[^A-Za-z0-9)]+$/g, "")
+-            .toLowerCase();
+-
+-    const buildCountMap = (input: string) => {
+-        const map = new Map<string, number>();
+-        const tokens = input.split(/\s+/).filter(Boolean).map(getWordKey).filter(Boolean);
+-        for (const t of tokens) map.set(t, (map.get(t) ?? 0) + 1);
+-        return map;
+-    };
+-
+-    const renderDecoratedHtml = useCallback(
+-        (plain: string) => {
+-            const baselineCounts = buildCountMap(baselineRef.current || "");
+-            const remaining = new Map(baselineCounts);
+-            const parts = plain.split(/(\s+)/);
+-            return parts
+-                .map((part) => {
+-                    if (/^\s+$/.test(part)) return part.replaceAll("\n", "<br/>");
+-                    const safe = escapeHtml(part);
+-                    const key = getWordKey(part);
+-                    const left = remaining.get(key) ?? 0;
+-                    const isChanged = key.length > 0 && left === 0;
+-                    if (left > 0) remaining.set(key, left - 1);
+-                    const isKeyword = keywordTokens.has(key);
+-                    const alpha = /^[a-zA-Z]+$/.test(part);
+-                    const isMisspelled = alpha && !dictionary.has(part.toLowerCase());
+-
+-                    if (isChanged && isKeyword) return `<strong>${safe}</strong>`;
+-                    if (isChanged && isMisspelled) {
+-                        return `<span style="text-decoration: underline; text-decoration-color: #ef4444; text-decoration-thickness: 2px;">${safe}</span>`;
+-                    }
+-                    return safe;
+-                })
+-                .join("");
+-        },
+-        [dictionary, keywordTokens]
+-    );
+-
+-    const getCaretOffset = useCallback((root: HTMLElement): number => {
+-        const sel = window.getSelection();
+-        if (!sel || !sel.rangeCount) return 0;
+-        const range = sel.getRangeAt(0).cloneRange();
+-        const pre = range.cloneRange();
+-        pre.selectNodeContents(root);
+-        pre.setEnd(range.endContainer, range.endOffset);
+-        return pre.toString().length;
+-    }, []);
+-
+-    const setCaretOffset = useCallback((root: HTMLElement, offset: number) => {
+-        const selection = window.getSelection();
+-        if (!selection) return;
+-        const range = document.createRange();
+-        let remaining = offset;
+-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+-        let node = walker.nextNode();
+-        while (node) {
+-            const text = node.textContent ?? "";
+-            if (remaining <= text.length) {
+-                range.setStart(node, Math.max(0, remaining));
+-                range.collapse(true);
+-                selection.removeAllRanges();
+-                selection.addRange(range);
+-                return;
+-            }
+-            remaining -= text.length;
+-            node = walker.nextNode();
+-        }
+-        range.selectNodeContents(root);
+-        range.collapse(false);
+-        selection.removeAllRanges();
+-        selection.addRange(range);
+-    }, []);
+-
+-    const syncFromExternalValue = useCallback(() => {
+-        const el = editorRef.current;
+-        if (!el) return;
+-        const shouldPreserveCaret = isFocusedRef.current;
+-        const caret = shouldPreserveCaret ? getCaretOffset(el) : 0;
+-        const html = renderDecoratedHtml(value || "");
+-        if (el.innerHTML !== html) {
+-            el.innerHTML = html || "";
+-            if (shouldPreserveCaret) setCaretOffset(el, caret);
+-        }
+-    }, [getCaretOffset, renderDecoratedHtml, setCaretOffset, value]);
+-
+-    useEffect(() => {
+-        if (!isFocusedRef.current) {
+-            baselineRef.current = value || "";
+-        }
+-        syncFromExternalValue();
+-    }, [syncFromExternalValue]);
+-
+-    const readPlainText = () => {
+-        const el = editorRef.current;
+-        if (!el) return "";
+-        return el.innerText.replace(/\u00A0/g, "");
+-    };
+-
+-    const updateSuggestionState = () => {
+-        const sel = window.getSelection();
+-        const el = editorRef.current;
+-        if (!sel || !sel.rangeCount || !el) return;
+-
+-        const text = readPlainText();
+-        const caret = getCaretOffset(el);
+-        const leftText = text.slice(0, Math.max(0, caret));
+-        const match = leftText.match(/(^|\s)([\/#])([^\s]*)$/);
+-
+-        if (!match) {
+-            setShowSuggestions(false);
+-            setTrigger(null);
+-            setQuery("");
+-            return;
+-        }
+-
+-        const foundTrigger = match[2] as "/" | "#";
+-        const nextQuery = match[3] ?? "";
+-        setTrigger(foundTrigger);
+-        setQuery(nextQuery);
+-        setShowSuggestions(true);
+-        setActiveIndex(0);
+-
+-        const r = sel.getRangeAt(0).cloneRange();
+-        r.collapse(true);
+-        const rect = r.getBoundingClientRect();
+-        const hostRect = el.getBoundingClientRect();
+-        setMenuPos({
+-            top: rect.bottom - hostRect.top + 6,
+-            left: rect.left - hostRect.left,
+-        });
+-    };
+-
+-    const applySuggestion = (word: string) => {
+-        const el = editorRef.current;
+-        const current = readPlainText();
+-        const caret = el ? getCaretOffset(el) : current.length;
+-        const left = current.slice(0, caret);
+-        const match = /(^|\s)[\/#][^\s]*$/.exec(left);
+-        if (!match) return;
+-        const replaceStart = match.index + (match[1] ? match[1].length : 0);
+-        const next = current.slice(0, replaceStart) + word + current.slice(caret);
+-        pendingCaretRef.current = replaceStart + word.length;
+-
+-        onChange(next);
+-        setShowSuggestions(false);
+-        setTrigger(null);
+-        setQuery("");
+-
+-        requestAnimationFrame(() => {
+-            syncFromExternalValue();
+-            if (editorRef.current) {
+-                editorRef.current.focus();
+-                if (pendingCaretRef.current != null) {
+-                    setCaretOffset(editorRef.current, pendingCaretRef.current);
+-                    pendingCaretRef.current = null;
+-                }
+-            }
+-        });
+-    };
+-
+-    const onInput = () => {
+-        const next = readPlainText();
+-        onChange(next);
+-        requestAnimationFrame(() => {
+-            syncFromExternalValue();
+-            updateSuggestionState();
+-        });
+-    };
+-
+-    const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
+-        if (e.key === "/" || e.key === "#") {
+-            requestAnimationFrame(updateSuggestionState);
+-        }
+-        if (!showSuggestions || suggestions.length === 0) return;
+-
+-        if (e.key === "ArrowDown") {
+-            e.preventDefault();
+-            setActiveIndex((i) => (i + 1) % suggestions.length);
+-            return;
+-        }
+-        if (e.key === "ArrowUp") {
+-            e.preventDefault();
+-            setActiveIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+-            return;
+-        }
+-        if (e.key === "Enter" || e.key === "Tab") {
+-            e.preventDefault();
+-            applySuggestion(suggestions[activeIndex]);
+-            return;
+-        }
+-        if (e.key === "Escape") {
+-            e.preventDefault();
+-            setShowSuggestions(false);
+-        }
+-    };
+-
+-    return (
+-        <div className="relative">
+-            <div
+-                ref={editorRef}
+-                contentEditable
+-                suppressContentEditableWarning
+-                spellCheck={false}
+-                onFocus={() => {
+-                    isFocusedRef.current = true;
+-                    baselineRef.current = value || "";
+-                }}
+-                onBlur={() => {
+-                    isFocusedRef.current = false;
+-                }}
+-                onInput={onInput}
+-                onKeyUp={updateSuggestionState}
+-                onClick={updateSuggestionState}
+-                onKeyDown={onKeyDown}
+-                className="w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm min-h-[120px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20"
+-                data-placeholder={placeholder ?? ""}
+-            />
+-            {(!value || value.length === 0) && (
+-                <div className="pointer-events-none absolute left-3 top-2 text-sm text-[var(--muted)]">
+-                    {placeholder ?? ""}
+-                </div>
+-            )}
+-
+-            {showSuggestions && suggestions.length > 0 && (
+-                <div
+-                    className="absolute z-50 w-64 rounded-md border border-[var(--border)] bg-white shadow-md"
+-                    style={{ top: menuPos.top, left: menuPos.left }}
+-                >
+-                    <div className="px-2 py-1 text-xs text-[var(--muted)] border-b border-[var(--border)]">
+-                        {trigger} suggestions
+-                    </div>
+-                    {suggestions.map((s, idx) => (
+-                        <button
+-                            key={s}
+-                            type="button"
+-                            onMouseDown={(e) => {
+-                                e.preventDefault();
+-                                applySuggestion(s);
+-                            }}
+-                            className={`block w-full text-left px-2 py-1 text-sm ${idx === activeIndex ? "bg-[var(--sidebar)] font-semibold" : "hover:bg-[var(--sidebar)]/60"
+-                                }`}
+-                        >
+-                            <span className={idx === activeIndex ? "font-semibold" : "font-normal"}>{s}</span>
+-                        </button>
+-                    ))}
+-                </div>
+-            )}
+-        </div>
+-    );
+-}
+ 
+ export default function ApplicationDetailPage() {
+     const params = useParams();
+@@ -399,22 +63,6 @@ export default function ApplicationDetailPage() {
+     const [previewTab, setPreviewTab] = useState<"document" | "json">("document");
+     const [expandedFieldKey, setExpandedFieldKey] = useState<string | null>(null);
+     const [fields, setFields] = useState<ExtractedField[]>(() => getExtractedFieldsForApplication(id));
+-    const [editModal, setEditModal] = useState<{
+-        fieldKey: string;
+-        ruleId: string;
+-        ruleBaseId: string;
+-        ruleName: string;
+-        ruleVersion: string;
+-        name: string;
+-        description: string;
+-        prompt: string;
+-        previousConfidence: number;
+-        fieldName: string;
+-        testOutput: { field: string; value: string; confidence: number;[key: string]: unknown } | null;
+-    } | null>(null);
+-    const [editModalTesting, setEditModalTesting] = useState(false);
+-    const [testSimulateMode, setTestSimulateMode] = useState<"positive" | "negative">("positive");
+-    const [reprocessingFieldKey, setReprocessingFieldKey] = useState<string | null>(null);
+     const [pdfPageCount, setPdfPageCount] = useState<number>(0);
+     const [pdfPageNumber, setPdfPageNumber] = useState(1);
+     const [pdfError, setPdfError] = useState<string | null>(null);
+@@ -422,12 +70,7 @@ export default function ApplicationDetailPage() {
+     const [pdfFitWidth, setPdfFitWidth] = useState(PDF_FALLBACK_WIDTH);
+     const [selectedPdfFile, setSelectedPdfFile] = useState(REMOTE_PDF_PROXY_URL);
+     const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
+-    const [rejectModal, setRejectModal] = useState<{
+-        fieldKey: string;
+-        reason: string;
+-    } | null>(null);
+     const [error, setError] = useState<string | null>(null);
+-    const editModalNameInputRef = useRef<HTMLInputElement>(null);
+     const pdfViewportRef = useRef<HTMLDivElement>(null);
+     const [hoveredFieldKey, setHoveredFieldKey] = useState<string | null>(null);
+ 
+@@ -445,13 +88,19 @@ export default function ApplicationDetailPage() {
+         manualValue: string;
+         changeReason: "" | "Poor Image Quality" | "Graph Missing Data" | "Supplier Error";
+     } | null>(null);
+-
+-    useEffect(() => {
+-        if (editModal) {
+-            setError(null);
+-            editModalNameInputRef.current?.focus();
+-        }
+-    }, [editModal]);
++    const [finalApproveOpen, setFinalApproveOpen] = useState(false);
++    const [viewCatalogRuleField, setViewCatalogRuleField] = useState<ExtractedField | null>(null);
++    const [finalApproveNonce, setFinalApproveNonce] = useState(0);
++
++    const categories = listCategories();
++    const categoryById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c.name])), [categories]);
++    const reviewStatusLabel = useMemo(() => {
++        const s = getApplicationReviewStatus(id);
++        if (s === "under_review") return "Under-review";
++        if (s === "ready_for_review") return "Ready for Review";
++        return "Reviewed";
++    }, [id, fields, finalApproveNonce]);
++    const finalApproved = getApplicationFinalApproved(id);
+ 
+     useEffect(() => {
+         // Configure pdf.js worker on client only to avoid DOMMatrix runtime issues.
+@@ -477,10 +126,6 @@ export default function ApplicationDetailPage() {
+         return () => observer.disconnect();
+     }, [isDetailFullscreen, previewTab]);
+ 
+-    const refreshFields = useCallback(() => {
+-        setFields([...getExtractedFieldsForApplication(id)]);
+-    }, [id]);
+-
+     const app = mockApplications.find((a) => a.id === id);
+     if (!app) {
+         return (
+@@ -511,127 +156,18 @@ export default function ApplicationDetailPage() {
+         })),
+     };
+ 
+-    const openEditRule = (f: ExtractedField) => {
+-        const rule = f.ruleId ? getExtractionRule(f.ruleId) : undefined;
+-        if (!f.ruleId || !rule) return;
+-        setEditModal({
+-            fieldKey: f.field,
+-            ruleId: rule.id,
+-            ruleBaseId: rule.ruleBaseId,
+-            ruleName: rule.name,
+-            ruleVersion: rule.version,
+-            name: rule.name,
+-            description: rule.description ?? "",
+-            prompt: rule.prompt,
+-            previousConfidence: Number(f.confidence) || 0,
+-            testOutput: null,
+-            fieldName: f.field,
+-        });
+-    };
+-
+-    const saveEditRule = () => {
+-        if (!editModal) return;
+-        if (!DOCUMENT_FIELD_KEYS.includes(editModal.fieldName as (typeof DOCUMENT_FIELD_KEYS)[number])) {
+-            setError("Invalid field name. Please choose a valid document field.");
+-            return;
+-        }
+-        setError(null);
+-        try {
+-            editRuleFromField(id, editModal.fieldKey, editModal.ruleId, "Divya Shukla", {
+-                name: editModal.name,
+-                description: editModal.description || undefined,
+-                prompt: editModal.prompt,
+-            });
+-            setEditModal(null);
+-            refreshFields();
+-        } catch (e) {
+-            setError(e instanceof Error ? e.message : "Failed to save rule");
+-        }
+-    };
+-
+-    const handleEditModalVersionChange = (versionedId: string) => {
+-        const rule = getExtractionRule(versionedId);
+-        if (!rule || !editModal) return;
+-        const currentField = fields.find((x) => x.field === editModal.fieldKey);
+-        setEditModal({
+-            ...editModal,
+-            ruleId: rule.id,
+-            ruleVersion: rule.version,
+-            name: rule.name,
+-            description: rule.description ?? "",
+-            prompt: rule.prompt,
+-            previousConfidence: Number(currentField?.confidence ?? editModal.previousConfidence) || 0,
+-            testOutput: null,
+-        });
+-    };
+-    const isEditFieldNameValid =
+-        !editModal || DOCUMENT_FIELD_KEYS.includes(editModal.fieldName as (typeof DOCUMENT_FIELD_KEYS)[number]);
+-
+-    const handleTestRule = () => {
+-        if (!editModal) return;
+-        setEditModalTesting(true);
+-        setError(null);
+-        const prev = Number(editModal.previousConfidence) || 0;
+-        const positive = testSimulateMode === "positive";
+-        setTimeout(() => {
+-            const delta = 8 + Math.floor(Math.random() * 10);
+-            const confidence = positive
+-                ? Math.min(99, prev + delta)
+-                : Math.max(0, prev - delta);
+-            const mockOutput = {
+-                field: editModal.fieldKey,
+-                value: "Extracted value (mock)",
+-                confidence,
+-                prompt_preview: editModal.prompt.slice(0, 80) + (editModal.prompt.length > 80 ? "…" : ""),
+-                timestamp: new Date().toISOString(),
+-            };
+-            setEditModal((m) => m ? { ...m, testOutput: mockOutput } : null);
+-            setEditModalTesting(false);
+-        }, 600);
+-    };
+-
+-    const handleReprocess = (fieldKey: string) => {
+-        setError(null);
+-        setReprocessingFieldKey(fieldKey);
+-        try {
+-            reprocessField(id, fieldKey);
+-            refreshFields();
+-        } catch (e) {
+-            setError(e instanceof Error ? e.message : "Failed to reprocess field");
+-        } finally {
+-            setReprocessingFieldKey(null);
+-        }
+-    };
+-
+     const handleFieldApprove = (fieldKey: string, e: React.MouseEvent) => {
+         e.stopPropagation();
++        if (getFieldDecision(id, fieldKey) === "approved") return;
+         setFieldDecision(id, fieldKey, "approved");
+         setFields((prev) => [...prev]);
+     };
+ 
+-    const handleFieldReject = (fieldKey: string, e: React.MouseEvent) => {
+-        e.stopPropagation();
+-        setRejectModal({
+-            fieldKey,
+-            reason: getFieldDecisionReason(id, fieldKey) ?? "",
+-        });
+-    };
++    const allFieldsApproved = useMemo(
++        () => fields.length > 0 && fields.every((f) => getFieldDecision(id, f.field) === "approved"),
++        [fields, id]
++    );
+ 
+-    const submitFieldReject = (fieldKey: string, reason: string, editRuleAfterSubmit: boolean) => {
+-        const trimmedReason = reason.trim();
+-        if (!trimmedReason) {
+-            setError("Please provide a reason before rejecting the field.");
+-            return;
+-        }
+-        setError(null);
+-        setFieldDecision(id, fieldKey, "rejected", trimmedReason);
+-        setFields((prev) => [...prev]);
+-        setRejectModal(null);
+-        if (editRuleAfterSubmit) {
+-            const field = fields.find((f) => f.field === fieldKey);
+-            if (field) openEditRule(field);
+-        }
+-    };
+     const submitValueEdit = () => {
+         if (!valueEditModal) return;
+ 
+@@ -677,7 +213,7 @@ export default function ApplicationDetailPage() {
+             {!isDetailFullscreen && (
+                 <CardHeader>
+                     <CardTitle>Extracted Fields</CardTitle>
+-                    <p className="text-sm text-[var(--muted)]">Click a row to expand and see rule details. Low-confidence fields can be improved by editing the rule or reprocessing.</p>
++                    <p className="text-sm text-[var(--muted)]">Click a row to expand and see rule details. Approve each field before final approval.</p>
+                     {error && (
+                         <p className="text-sm text-red-600" role="alert">{error}</p>
+                     )}
+@@ -699,7 +235,6 @@ export default function ApplicationDetailPage() {
+                             const isExpanded = expandedFieldKey === f.field;
+                             const isLowConfidence = f.confidence < CONFIDENCE_THRESHOLD;
+                             const decision = getFieldDecision(id, f.field);
+-                            const decisionReason = getFieldDecisionReason(id, f.field);
+                             return (
+                                 <React.Fragment key={f.field}>
+                                     <div
+@@ -738,9 +273,10 @@ export default function ApplicationDetailPage() {
+                                                     size="icon"
+                                                     variant={decision === "approved" ? "default" : "outline"}
+                                                     className="h-7 w-7"
++                                                    disabled={decision === "approved"}
+                                                     onClick={(e) => handleFieldApprove(f.field, e)}
+                                                     aria-label={`Approve ${f.field}`}
+-                                                    title="Approve"
++                                                    title={decision === "approved" ? "Approved" : "Approve"}
+                                                 >
+                                                     <Check className="h-3.5 w-3.5" />
+                                                 </Button>
+@@ -777,6 +313,20 @@ export default function ApplicationDetailPage() {
+                                                     <span className="font-medium">Rule:</span>{" "}
+                                                     {f.ruleId ? (() => {
+                                                         const r = getExtractionRule(f.ruleId!);
++                                                        if (f.field === "Catalog Item") {
++                                                            return (
++                                                                <button
++                                                                    type="button"
++                                                                    className="text-[var(--foreground)] underline cursor-pointer text-left"
++                                                                    onClick={(e) => {
++                                                                        e.stopPropagation();
++                                                                        setViewCatalogRuleField(f);
++                                                                    }}
++                                                                >
++                                                                    {f.ruleName ?? f.ruleId}{f.ruleVersion ? ` (v${f.ruleVersion})` : ""}
++                                                                </button>
++                                                            );
++                                                        }
+                                                         const href = r ? `/rules/extraction/${r.ruleBaseId}/edit${r.version ? `?version=${r.version}` : ""}` : "#";
+                                                         return (
+                                                             <Link href={href} className="text-[var(--foreground)] underline">
+@@ -792,47 +342,13 @@ export default function ApplicationDetailPage() {
+                                                         size="icon"
+                                                         variant={decision === "approved" ? "default" : "outline"}
+                                                         className="h-7 w-7"
++                                                        disabled={decision === "approved"}
+                                                         onClick={(e) => { e.stopPropagation(); handleFieldApprove(f.field, e); }}
+                                                         aria-label={`Approve ${f.field}`}
+-                                                        title="Approve field"
++                                                        title={decision === "approved" ? "Approved" : "Approve field"}
+                                                     >
+                                                         <Check className="h-3.5 w-3.5" />
+                                                     </Button>
+-                                                    <Button
+-                                                        size="icon"
+-                                                        variant={decision === "rejected" ? "destructive" : "outline"}
+-                                                        className="h-7 w-7"
+-                                                        onClick={(e) => { e.stopPropagation(); handleFieldReject(f.field, e); }}
+-                                                        aria-label={`Reject ${f.field}`}
+-                                                        title="Reject field"
+-                                                    >
+-                                                        <X className="h-3.5 w-3.5" />
+-                                                    </Button>
+-                                                </div>
+-                                                {decision === "rejected" && decisionReason && (
+-                                                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-800">
+-                                                        <span className="font-medium">Rejection reason:</span> {decisionReason}
+-                                                    </div>
+-                                                )}
+-                                                <div className="flex flex-wrap gap-2 pt-2">
+-                                                    <Button
+-                                                        size="sm"
+-                                                        variant="outline"
+-                                                        onClick={(e) => { e.stopPropagation(); openEditRule(f); }}
+-                                                        aria-label={`Edit rule for ${f.field}`}
+-                                                    >
+-                                                        <Edit className="h-3 w-3 mr-1" /> Edit rule
+-                                                    </Button>
+-                                                    <Button
+-                                                        size="sm"
+-                                                        variant="outline"
+-                                                        onClick={(e) => { e.stopPropagation(); handleReprocess(f.field); }}
+-                                                        disabled={reprocessingFieldKey === f.field}
+-                                                        aria-label={reprocessingFieldKey === f.field ? `Reprocessing ${f.field}` : `Reprocess ${f.field}`}
+-                                                    >
+-                                                        <RefreshCw className={`h-3 w-3 mr-1 ${reprocessingFieldKey === f.field ? "animate-spin" : ""}`} />
+-                                                        {reprocessingFieldKey === f.field ? "Reprocessing…" : "Reprocess field"}
+-                                                    </Button>
+                                                 </div>
+                                             </div>
+                                         </div>
+@@ -854,14 +370,24 @@ export default function ApplicationDetailPage() {
+                         <Link href="/applications" className={buttonVariants({ variant: "ghost", size: "icon" })}><ArrowLeft className="h-5 w-5" /></Link>
+                         <div>
+                             <h1 className="text-2xl font-semibold tracking-tight">{app.id}</h1>
+-                            <p className="text-[var(--muted)] text-sm">{app.applicantName} · {app.decisionStatus.replace("_", " ")}</p>
++                            <p className="text-[var(--muted)] text-sm">{app.applicantName} · {reviewStatusLabel}</p>
+                         </div>
+                     </div>
+                     <div className="flex gap-2">
+-                        <Button variant="default"><Check className="h-4 w-4 mr-2" />Approve</Button>
+-                        <Button variant="destructive"><X className="h-4 w-4 mr-2" />Reject</Button>
+-                        <Button variant="outline"><Edit className="h-4 w-4 mr-2" />Override Decision</Button>
+-                        <Button variant="secondary"><MessageCircle className="h-4 w-4 mr-2" />Request Clarification</Button>
++                        {finalApproved ? (
++                            <Button variant="default" disabled className="gap-2">
++                                <Check className="h-4 w-4" /> Approved
++                            </Button>
++                        ) : (
++                            <Button
++                                variant="default"
++                                disabled={!allFieldsApproved}
++                                title={!allFieldsApproved ? "Approve every field in the table first" : undefined}
++                                onClick={() => setFinalApproveOpen(true)}
++                            >
++                                <Check className="h-4 w-4 mr-2" />Approve
++                            </Button>
++                        )}
+                     </div>
+                 </div>
+             )}
+@@ -1093,209 +619,6 @@ export default function ApplicationDetailPage() {
+                 </div>
+             </div>
+ 
+-            {/* Edit rule modal: three columns — form, output, graph */}
+-            {editModal && (
+-                <div
+-                    className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
+-                    role="dialog"
+-                    aria-modal="true"
+-                    aria-labelledby="edit-rule-title"
+-                    onKeyDown={(e) => e.key === "Escape" && setEditModal(null)}
+-                >
+-                    <Card className="w-full max-w-7xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+-                        <CardHeader className="flex flex-row items-center justify-between shrink-0">
+-                            <CardTitle id="edit-rule-title">Edit rule for this field</CardTitle>
+-                            <Button variant="ghost" size="icon" onClick={() => setEditModal(null)} aria-label="Close">×</Button>
+-                        </CardHeader>
+-                        <CardContent className="flex-1 min-h-0 overflow-hidden grid grid-cols-1 xl:grid-cols-3 gap-6 pb-6">
+-                            {/* Column 1: version + form */}
+-                            <div className="space-y-4 min-w-0 min-h-0 overflow-y-auto pr-1">
+-                                <p className="text-sm text-[var(--muted)]">
+-                                    Run Test to see extraction output. Save creates a new version and maps it to this field only.
+-                                </p>
+-                                <div>
+-                                    <label className="block text-sm font-medium mb-1">Version</label>
+-                                    <Select
+-                                        value={editModal.ruleId}
+-                                        onChange={(e) => handleEditModalVersionChange(e.target.value)}
+-                                        className="w-full"
+-                                    >
+-                                        {listVersionsForRule(editModal.ruleBaseId).map((v) => (
+-                                            <option key={v.id} value={v.id}>v{v.version}</option>
+-                                        ))}
+-                                    </Select>
+-                                    <p className="mt-1 text-xs text-[var(--muted)]">
+-                                        Last edited by {getExtractionRule(editModal.ruleId)?.lastEditedBy ?? "—"} on{" "}
+-                                        {getExtractionRule(editModal.ruleId)?.lastEditedAt
+-                                            ? new Date(getExtractionRule(editModal.ruleId)!.lastEditedAt!).toLocaleString()
+-                                            : "—"}
+-                                    </p>
+-                                </div>
+-                                <div>
+-                                    <label className="block text-sm font-medium mb-1" htmlFor="edit-field-name">Field name</label>
+-                                    <Input
+-                                        id="edit-field-name"
+-                                        value={editModal.fieldName}
+-                                        onChange={(e) => setEditModal((m) => m ? { ...m, fieldName: e.target.value } : null)}
+-                                        className={isEditFieldNameValid ? "w-full" : "w-full border-red-500 ring-1 ring-red-500"}
+-                                    />
+-                                    {!isEditFieldNameValid && (
+-                                        <p className="mt-1 text-xs text-red-600">Field name is invalid.</p>
+-                                    )}
+-                                </div>
+-                                <div>
+-                                    <label className="block text-sm font-medium mb-1">Description (optional)</label>
+-                                    <Input
+-                                        value={editModal.description}
+-                                        onChange={(e) => setEditModal((m) => m ? { ...m, description: e.target.value } : null)}
+-                                        className="w-full"
+-                                    />
+-                                </div>
+-                                <div>
+-                                    <label className="block text-sm font-medium mb-1">Prompt</label>
+-                                    <SmartPromptEditor
+-                                        value={editModal.prompt}
+-                                        onChange={(next) => setEditModal((m) => (m ? { ...m, prompt: next } : null))}
+-                                        placeholder="e.g. Extract the applicant's full name from the document header."
+-                                    />
+-                                </div>
+-                            </div>
+-                            {/* Column 2: Test output */}
+-                            <div className="flex flex-col min-h-0 min-w-0 space-y-4 overflow-y-auto pr-1">
+-                                <label className="block text-sm font-medium mb-1">Test output</label>
+-                                <div className="flex-1 min-h-[260px] rounded-md border border-[var(--border)] bg-[#282c34] overflow-auto">
+-                                    {editModal.testOutput != null ? (
+-                                        <SyntaxHighlighter
+-                                            language="json"
+-                                            style={oneDark}
+-                                            customStyle={{
+-                                                margin: 0,
+-                                                padding: "0.75rem 1rem",
+-                                                fontSize: "0.75rem",
+-                                                lineHeight: 1.5,
+-                                                background: "transparent",
+-                                                minHeight: "100%",
+-                                            }}
+-                                            codeTagProps={{ style: { fontFamily: "ui-monospace, monospace" } }}
+-                                            showLineNumbers={false}
+-                                            PreTag="div"
+-                                        >
+-                                            {JSON.stringify(editModal.testOutput, null, 2)}
+-                                        </SyntaxHighlighter>
+-                                    ) : (
+-                                        <p className="text-sm text-gray-400 p-4">Run Test to see extraction output here.</p>
+-                                    )}
+-                                </div>
+-                            </div>
+-                            {/* Column 3: Confidence comparison + graph */}
+-                            <div className="flex flex-col min-h-0 min-w-0 space-y-4">
+-                                <div className="shrink-0">
+-                                    <label className="block text-sm font-medium mb-2">Confidence impact</label>
+-                                    <div className="grid grid-cols-2 gap-3">
+-                                        <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 p-4 text-center">
+-                                            <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Before</p>
+-                                            <p className="text-2xl font-bold mt-1 tabular-nums" style={{ color: "var(--foreground)" }}>
+-                                                {Number(editModal.previousConfidence) || 0}%
+-                                            </p>
+-                                            <p className="text-xs text-[var(--muted)] mt-0.5">current extraction</p>
+-                                        </div>
+-                                        <div className={`rounded-lg border p-4 text-center ${editModal.testOutput != null
+-                                            ? (Number(editModal.testOutput.confidence) || 0) >= (Number(editModal.previousConfidence) || 0)
+-                                                ? "border-[var(--safe)] bg-[var(--safe)]/10"
+-                                                : "border-red-500 bg-red-500/10"
+-                                            : "border-[var(--border)] bg-[var(--sidebar)]/30"
+-                                            }`}>
+-                                            <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">After</p>
+-                                            {editModal.testOutput != null ? (
+-                                                (() => {
+-                                                    const before = Number(editModal.previousConfidence) || 0;
+-                                                    const after = Number(editModal.testOutput.confidence) || 0;
+-                                                    const delta = after - before;
+-                                                    const isImprovement = delta >= 0;
+-                                                    return (
+-                                                        <>
+-                                                            <p className={`text-2xl font-bold mt-1 tabular-nums ${isImprovement ? "text-[var(--safe)]" : "text-red-500"}`}>
+-                                                                {after}%
+-                                                            </p>
+-                                                            <p className="text-xs mt-0.5">
+-                                                                <span className={isImprovement ? "text-[var(--safe)]" : "text-red-500"}>
+-                                                                    {delta >= 0 ? "↑" : "↓"} {Math.abs(delta)} pts
+-                                                                </span>
+-                                                            </p>
+-                                                        </>
+-                                                    );
+-                                                })()
+-                                            ) : (
+-                                                <p className="text-sm text-[var(--muted)] mt-2">Run Test</p>
+-                                            )}
+-                                        </div>
+-                                    </div>
+-                                </div>
+-                                <div className="mt-auto flex-1 min-h-[260px] rounded-md border border-[var(--border)] bg-[var(--sidebar)]/30 p-3">
+-                                    {editModal.testOutput != null ? (
+-                                        (() => {
+-                                            const beforeVal = Number(editModal.previousConfidence) || 0;
+-                                            const afterVal = Number(editModal.testOutput.confidence) || 0;
+-                                            const afterColor = afterVal >= beforeVal ? "var(--safe)" : "#ef4444";
+-                                            return (
+-                                                <ResponsiveContainer width="100%" height="100%">
+-                                                    <BarChart
+-                                                        data={[
+-                                                            { label: "Before", value: beforeVal, fill: "var(--muted)" },
+-                                                            { label: "After", value: afterVal, fill: afterColor },
+-                                                        ]}
+-                                                        margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+-                                                    >
+-                                                        <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+-                                                        <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={26} />
+-                                                        <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+-                                                            <Cell fill="var(--muted)" />
+-                                                            <Cell fill={afterColor} />
+-                                                        </Bar>
+-                                                    </BarChart>
+-                                                </ResponsiveContainer>
+-                                            );
+-                                        })()
+-                                    ) : (
+-                                        <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
+-                                            Run Test to visualize confidence change.
+-                                        </div>
+-                                    )}
+-                                </div>
+-                            </div>
+-                        </CardContent>
+-                        <CardFooter className="shrink-0 border-t border-[var(--border)] bg-[var(--card)] px-6 py-3 flex flex-wrap items-center justify-between gap-2">
+-                            <div className="flex items-center gap-2">
+-                                <Button onClick={handleTestRule} disabled={editModalTesting}>
+-                                    {editModalTesting ? "Testing…" : "Test"}
+-                                </Button>
+-                                <label className="text-sm text-[var(--muted)] shrink-0">Simulate:</label>
+-                                <Select
+-                                    value={testSimulateMode}
+-                                    onChange={(e) => setTestSimulateMode(e.target.value as "positive" | "negative")}
+-                                    className="w-44"
+-                                    disabled={editModalTesting}
+-                                >
+-                                    <option value="positive">Positive (improved)</option>
+-                                    <option value="negative">Negative (regression)</option>
+-                                </Select>
+-                            </div>
+-                            <div className="flex items-center gap-2">
+-                                <Button variant="outline" onClick={() => setEditModal(null)}>
+-                                    Cancel
+-                                </Button>
+-                                <Button
+-                                    onClick={saveEditRule}
+-                                    disabled={editModal.testOutput == null}
+-                                    title={editModal.testOutput == null ? "Run Test first to enable Save" : undefined}
+-                                >
+-                                    Save (creates new version)
+-                                </Button>
+-                            </div>
+-                        </CardFooter>
+-                    </Card>
+-                </div>
+-            )}
+             {valueEditModal && (
+                 <div
+                     className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
+@@ -1400,52 +723,135 @@ export default function ApplicationDetailPage() {
+                     </Card>
+                 </div>
+             )}
+-            {rejectModal && (
++
++            {finalApproveOpen && (
+                 <div
+-                    className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--foreground)]/20 p-4"
++                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+                     role="dialog"
+                     aria-modal="true"
+-                    aria-labelledby="reject-field-title"
+-                    onClick={() => setRejectModal(null)}
++                    aria-labelledby="final-approve-title"
++                    onClick={() => setFinalApproveOpen(false)}
+                 >
+-                    <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+-                        <CardHeader>
+-                            <CardTitle id="reject-field-title">Reject field with reason</CardTitle>
++                    <Card className="w-full max-w-md shadow-lg" onClick={(e) => e.stopPropagation()}>
++                        <CardHeader className="flex flex-row items-center justify-between space-y-0">
++                            <CardTitle id="final-approve-title">Confirm approval</CardTitle>
++                            <Button type="button" variant="ghost" size="icon" onClick={() => setFinalApproveOpen(false)} aria-label="Close">
++                                <X className="h-4 w-4" />
++                            </Button>
+                         </CardHeader>
+                         <CardContent className="space-y-4">
+                             <p className="text-sm text-[var(--muted)]">
+-                                Please provide a reason for rejecting <span className="font-medium">{rejectModal.fieldKey}</span>.
++                                Final approval for <span className="font-medium text-[var(--foreground)]">{app.id}</span>. This marks the form as reviewed after all fields are approved.
+                             </p>
+-                            <textarea
+-                                value={rejectModal.reason}
+-                                onChange={(e) =>
+-                                    setRejectModal((m) => (m ? { ...m, reason: e.target.value } : null))
+-                                }
+-                                rows={5}
+-                                placeholder="Describe why this extracted value is incorrect."
+-                                className="flex w-full rounded-md border border-[var(--border)] bg-transparent px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--foreground)]/20"
+-                            />
+-                            <div className="flex flex-wrap gap-2 justify-end">
+-                                <Button variant="outline" onClick={() => setRejectModal(null)}>
++                            <div className="flex justify-end gap-2">
++                                <Button type="button" variant="outline" onClick={() => setFinalApproveOpen(false)}>
+                                     Cancel
+                                 </Button>
+                                 <Button
+-                                    variant="outline"
+-                                    onClick={() => submitFieldReject(rejectModal.fieldKey, rejectModal.reason, true)}
+-                                >
+-                                    Submit and Edit Rule
+-                                </Button>
+-                                <Button
+-                                    variant="destructive"
+-                                    onClick={() => submitFieldReject(rejectModal.fieldKey, rejectModal.reason, false)}
++                                    type="button"
++                                    onClick={() => {
++                                        setApplicationFinalApproved(id, true);
++                                        setFinalApproveNonce((n) => n + 1);
++                                        setFinalApproveOpen(false);
++                                    }}
+                                 >
+-                                    Submit and Skip Rule Editing
++                                    Confirm approval
+                                 </Button>
+                             </div>
+                         </CardContent>
+                     </Card>
+                 </div>
+             )}
++
++            {viewCatalogRuleField && (() => {
++                const rule = viewCatalogRuleField.ruleId ? getExtractionRule(viewCatalogRuleField.ruleId) : undefined;
++                if (!rule) return null;
++                const ro = "bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-90";
++                return (
++                    <div
++                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto"
++                        role="dialog"
++                        aria-modal="true"
++                        aria-labelledby="catalog-rule-view-title"
++                        onClick={() => setViewCatalogRuleField(null)}
++                    >
++                        <Card className="w-full max-w-lg my-8 shadow-lg" onClick={(e) => e.stopPropagation()}>
++                            <CardHeader className="flex flex-row items-center justify-between space-y-0">
++                                <CardTitle id="catalog-rule-view-title">Rule details (view only)</CardTitle>
++                                <Button type="button" variant="ghost" size="icon" onClick={() => setViewCatalogRuleField(null)} aria-label="Close">
++                                    <X className="h-4 w-4" />
++                                </Button>
++                            </CardHeader>
++                            <CardContent className="space-y-4 max-h-[70vh] overflow-y-auto">
++                                <p className="text-xs text-[var(--muted)]">Field: Catalog Item · v{rule.version}</p>
++                                <div>
++                                    <label className="block text-sm font-medium mb-1">Field Name</label>
++                                    <Input value={rule.name} disabled className={ro} readOnly />
++                                </div>
++                                <div>
++                                    <label className="block text-sm font-medium mb-1">Category</label>
++                                    <Select value={rule.categoryId} disabled className={ro}>
++                                        <option value={rule.categoryId}>{categoryById[rule.categoryId] ?? rule.categoryId}</option>
++                                    </Select>
++                                </div>
++                                <div>
++                                    <label className="block text-sm font-medium mb-1">Description</label>
++                                    <textarea
++                                        value={rule.description ?? ""}
++                                        disabled
++                                        readOnly
++                                        rows={3}
++                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
++                                    />
++                                </div>
++                                <div>
++                                    <label className="block text-sm font-medium mb-1">Role</label>
++                                    <textarea
++                                        value={rule.role ?? ""}
++                                        disabled
++                                        readOnly
++                                        rows={3}
++                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
++                                    />
++                                </div>
++                                <div>
++                                    <label className="block text-sm font-medium mb-1">Guidelines</label>
++                                    <textarea
++                                        value={rule.prompt}
++                                        disabled
++                                        readOnly
++                                        rows={5}
++                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm font-mono text-xs", ro)}
++                                    />
++                                </div>
++                                <div>
++                                    <label className="block text-sm font-medium mb-1">Example(s)</label>
++                                    <textarea
++                                        value="—"
++                                        disabled
++                                        readOnly
++                                        rows={2}
++                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
++                                    />
++                                </div>
++                                <div>
++                                    <label className="block text-sm font-medium mb-1">Special instruction</label>
++                                    <textarea
++                                        value={rule.specialInstruction ?? ""}
++                                        disabled
++                                        readOnly
++                                        rows={2}
++                                        className={cn("flex w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm", ro)}
++                                    />
++                                </div>
++                                <Button type="button" variant="outline" className="w-full" onClick={() => setViewCatalogRuleField(null)}>
++                                    Close
++                                </Button>
++                            </CardContent>
++                        </Card>
++                    </div>
++                );
++            })()}
+         </div>
+     );
+ }
+diff --git a/src/app/applications/page.tsx b/src/app/applications/page.tsx
+index acd6d43..a966a94 100644
+--- a/src/app/applications/page.tsx
++++ b/src/app/applications/page.tsx
+@@ -16,19 +16,20 @@ import { Input } from "@/components/ui/input";
+ import { Select } from "@/components/ui/select";
+ import { Badge } from "@/components/ui/badge";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+-import { mockApplications, type Application, type DecisionStatus } from "@/data/mock";
++import { mockApplications } from "@/data/mock";
++import { getApplicationReviewStatus, type ApplicationReviewStatus } from "@/data/extraction-store";
+ import { Eye, UserPlus, RotateCcw } from "lucide-react";
+ 
+-function statusVariant(s: DecisionStatus): "safe" | "review" | "risk" {
+-    if (s === "auto_approved") return "safe";
+-    if (s === "review_required") return "review";
+-    return "risk";
++function reviewStatusLabel(s: ApplicationReviewStatus): string {
++    if (s === "under_review") return "Under-review";
++    if (s === "ready_for_review") return "Ready for Review";
++    return "Reviewed";
+ }
+ 
+-function statusLabel(s: DecisionStatus): string {
+-    if (s === "auto_approved") return "Auto Approved";
+-    if (s === "review_required") return "Review Required";
+-    return "Rejected";
++function reviewStatusVariant(s: ApplicationReviewStatus): "safe" | "review" | "risk" {
++    if (s === "reviewed") return "safe";
++    if (s === "ready_for_review") return "review";
++    return "risk";
+ }
+ 
+ function ApplicationsContent() {
+@@ -43,7 +44,8 @@ function ApplicationsContent() {
+ 
+     const filtered = useMemo(() => {
+         return mockApplications.filter((app) => {
+-            if (statusFilter !== "all" && app.decisionStatus !== statusFilter) return false;
++            const reviewStatus = getApplicationReviewStatus(app.id);
++            if (statusFilter !== "all" && reviewStatus !== statusFilter) return false;
+             if (app.confidence < confidenceMin || app.confidence > confidenceMax) return false;
+             if (search.trim()) {
+                 const q = search.trim().toLowerCase();
+@@ -68,19 +70,21 @@ function ApplicationsContent() {
+                 <CardContent>
+                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+                         <div>
+-                            <label className="text-xs font-medium text-[var(--muted)]">Status</label>
++                            <label className="text-xs font-medium text-[var(--muted)]">Decision status</label>
+                             <Select
+                                 value={statusFilter}
+-                                onChange={(e) => router.push(e.target.value === "all" ? "/applications" : `/applications?status=${e.target.value}`)}
++                                onChange={(e) =>
++                                    router.push(e.target.value === "all" ? "/applications" : `/applications?status=${e.target.value}`)
++                                }
+                             >
+                                 <option value="all">All</option>
+-                                <option value="auto_approved">Auto Approved</option>
+-                                <option value="review_required">Review Required</option>
+-                                <option value="rejected">Rejected</option>
++                                <option value="under_review">Under-review</option>
++                                <option value="ready_for_review">Ready for Review</option>
++                                <option value="reviewed">Reviewed</option>
+                             </Select>
+                         </div>
+                         <div>
+-                            <label className="text-xs font-medium text-[var(--muted)]">Confidence %</label>
++                            <label className="text-xs font-medium text-[var(--muted)]">Trust Score</label>
+                             <div className="flex gap-2 items-center">
+                                 <Input type="number" min={0} max={100} value={confidenceMin} onChange={(e) => setConfidenceMin(Number(e.target.value) || 0)} className="w-20" />
+                                 <span className="text-[var(--muted)]">–</span>
+@@ -114,36 +118,45 @@ function ApplicationsContent() {
+                             <TableRow>
+                                 <TableHead>NDC</TableHead>
+                                 <TableHead>Supplier</TableHead>
+-                                <TableHead>Confidence %</TableHead>
++                                <TableHead>Trsut Score</TableHead>
+                                 <TableHead>Competency Level</TableHead>
+-                                <TableHead>Decision Status</TableHead>
++                                <TableHead>Status</TableHead>
+                                 <TableHead>Timestamp</TableHead>
+                                 <TableHead className="w-[140px]">Actions</TableHead>
+                             </TableRow>
+                         </TableHeader>
+                         <TableBody>
+-                            {filtered.map((app) => (
+-                                <TableRow
+-                                    key={app.id}
+-                                    className={app.decisionStatus === "auto_approved" ? "bg-emerald-50/50" : app.decisionStatus === "review_required" ? "bg-amber-50/50" : "bg-red-50/50"}
+-                                >
+-                                    <TableCell className="font-medium">{app.id}</TableCell>
+-                                    <TableCell>{app.supplier}</TableCell>
+-                                    <TableCell>{app.confidence}%</TableCell>
+-                                    <TableCell>{app.competencyLevel}</TableCell>
+-                                    <TableCell>
+-                                        <Badge variant={statusVariant(app.decisionStatus)}>{statusLabel(app.decisionStatus)}</Badge>
+-                                    </TableCell>
+-                                    <TableCell>{new Date(app.timestamp).toLocaleString()}</TableCell>
+-                                    <TableCell>
+-                                        <div className="flex gap-1">
+-                                            <Link href={`/applications/${app.id}`} className={buttonVariants({ variant: "ghost", size: "icon" })} title="View Details"><Eye className="h-4 w-4" /></Link>
+-                                            <Button variant="ghost" size="icon" title="Assign Reviewer"><UserPlus className="h-4 w-4" /></Button>
+-                                            <Button variant="ghost" size="icon" title="Reprocess"><RotateCcw className="h-4 w-4" /></Button>
+-                                        </div>
+-                                    </TableCell>
+-                                </TableRow>
+-                            ))}
++                            {filtered.map((app) => {
++                                const rs = getApplicationReviewStatus(app.id);
++                                return (
++                                    <TableRow
++                                        key={app.id}
++                                        className={
++                                            rs === "reviewed"
++                                                ? "bg-emerald-50/50"
++                                                : rs === "ready_for_review"
++                                                  ? "bg-amber-50/50"
++                                                  : "bg-red-50/50"
++                                        }
++                                    >
++                                        <TableCell className="font-medium">{app.id}</TableCell>
++                                        <TableCell>{app.supplier}</TableCell>
++                                        <TableCell>{app.confidence}%</TableCell>
++                                        <TableCell>{app.competencyLevel}</TableCell>
++                                        <TableCell>
++                                            <Badge variant={reviewStatusVariant(rs)}>{reviewStatusLabel(rs)}</Badge>
++                                        </TableCell>
++                                        <TableCell>{new Date(app.timestamp).toLocaleString()}</TableCell>
++                                        <TableCell>
++                                            <div className="flex gap-1">
++                                                <Link href={`/applications/${app.id}`} className={buttonVariants({ variant: "ghost", size: "icon" })} title="View Details"><Eye className="h-4 w-4" /></Link>
++                                                <Button variant="ghost" size="icon" title="Assign Reviewer"><UserPlus className="h-4 w-4" /></Button>
++                                                <Button variant="ghost" size="icon" title="Reprocess"><RotateCcw className="h-4 w-4" /></Button>
++                                            </div>
++                                        </TableCell>
++                                    </TableRow>
++                                );
++                            })}
+                         </TableBody>
+                     </Table>
+                 </CardContent>
+diff --git a/src/app/competency/page.tsx b/src/app/competency/page.tsx
+index a66bbae..9edaf5c 100644
+--- a/src/app/competency/page.tsx
++++ b/src/app/competency/page.tsx
+@@ -2,46 +2,23 @@
+ 
+ import { useState } from "react";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+-import { Button } from "@/components/ui/button";
+-import { Badge } from "@/components/ui/badge";
+ import { Select } from "@/components/ui/select";
+ import {
+     defaultCompetencyBands,
+     defaultCompetencyBandsByDosage,
+     DOSAGE_TYPES,
+-    type CompetencyBand,
+     type DosageType,
+ } from "@/data/mock";
+-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+-
+-const accuracyOverTime = [
+-    { month: "Jan", accuracy: 84 },
+-    { month: "Feb", accuracy: 86 },
+-    { month: "Mar", accuracy: 87 },
+-    { month: "Apr", accuracy: 88 },
+-    { month: "May", accuracy: 90 },
+-    { month: "Jun", accuracy: 91 },
+-];
+ 
+ type CompetencyTab = "model" | "dosage";
+ 
+ export default function CompetencyModelPage() {
+     const [activeTab, setActiveTab] = useState<CompetencyTab>("model");
+-    const [bands, setBands] = useState<CompetencyBand[]>(defaultCompetencyBands);
++    const bands = defaultCompetencyBands;
+     const [selectedDosage, setSelectedDosage] = useState<DosageType>("Tablets");
+-    const [bandsByDosage, setBandsByDosage] = useState<Record<DosageType, CompetencyBand[]>>(defaultCompetencyBandsByDosage);
+-
+-    const updateBand = (i: number, key: keyof CompetencyBand, value: number | string) => {
+-        setBands((b) => b.map((x, j) => (j === i ? { ...x, [key]: value } : x)));
+-    };
++    const bandsByDosage = defaultCompetencyBandsByDosage;
+ 
+     const dosageBands = bandsByDosage[selectedDosage];
+-    const updateDosageBand = (i: number, key: keyof CompetencyBand, value: number | string) => {
+-        setBandsByDosage((prev) => ({
+-            ...prev,
+-            [selectedDosage]: prev[selectedDosage].map((x, j) => (j === i ? { ...x, [key]: value } : x)),
+-        }));
+-    };
+ 
+     return (
+         <div className="space-y-6">
+@@ -50,7 +27,6 @@ export default function CompetencyModelPage() {
+                     <h1 className="text-2xl font-semibold tracking-tight">Competency</h1>
+                     <p className="text-[var(--muted)] text-sm">Govern AI trust level via thresholds</p>
+                 </div>
+-                <Badge variant="safe" className="text-sm">Highly Intelligent</Badge>
+             </div>
+ 
+             <div className="border-b border-[var(--border)]">
+@@ -105,15 +81,16 @@ export default function CompetencyModelPage() {
+                                                 <input
+                                                     type="text"
+                                                     value={band.label}
+-                                                    onChange={(e) => updateBand(i, "label", e.target.value)}
+-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-40"
++                                                    readOnly
++                                                    disabled
++                                                    className="border border-[var(--border)] rounded px-2 py-1 w-40 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
+                                                 />
+                                             </td>
+                                             <td className="py-3">
+                                                 <select
+                                                     value={band.autoApproval}
+-                                                    onChange={(e) => updateBand(i, "autoApproval", e.target.value as CompetencyBand["autoApproval"])}
+-                                                    className="border border-[var(--border)] rounded px-2 py-1"
++                                                    disabled
++                                                    className="border border-[var(--border)] rounded px-2 py-1 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
+                                                 >
+                                                     <option value="enabled">Enabled</option>
+                                                     <option value="conditional">Conditional</option>
+@@ -126,8 +103,9 @@ export default function CompetencyModelPage() {
+                                                     min={0}
+                                                     max={100}
+                                                     value={band.accuracyMin}
+-                                                    onChange={(e) => updateBand(i, "accuracyMin", Number(e.target.value) || 0)}
+-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16"
++                                                    readOnly
++                                                    disabled
++                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
+                                                 />
+                                             </td>
+                                             <td className="py-3">
+@@ -136,8 +114,9 @@ export default function CompetencyModelPage() {
+                                                     min={0}
+                                                     max={100}
+                                                     value={band.accuracyMax}
+-                                                    onChange={(e) => updateBand(i, "accuracyMax", Number(e.target.value) || 100)}
+-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16"
++                                                    readOnly
++                                                    disabled
++                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
+                                                 />
+                                             </td>
+                                         </tr>
+@@ -145,7 +124,6 @@ export default function CompetencyModelPage() {
+                                 </tbody>
+                             </table>
+                         </div>
+-                        <Button className="mt-4">Save Version</Button>
+                     </CardContent>
+                 </Card>
+             )}
+@@ -162,7 +140,8 @@ export default function CompetencyModelPage() {
+                                 id="dosage-type"
+                                 value={selectedDosage}
+                                 onChange={(e) => setSelectedDosage(e.target.value as DosageType)}
+-                                className="w-40"
++                                className="w-40 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
++                                disabled
+                             >
+                                 {DOSAGE_TYPES.map((d) => (
+                                     <option key={d} value={d}>{d}</option>
+@@ -190,15 +169,16 @@ export default function CompetencyModelPage() {
+                                                 <input
+                                                     type="text"
+                                                     value={band.label}
+-                                                    onChange={(e) => updateDosageBand(i, "label", e.target.value)}
+-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-40"
++                                                    readOnly
++                                                    disabled
++                                                    className="border border-[var(--border)] rounded px-2 py-1 w-40 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
+                                                 />
+                                             </td>
+                                             <td className="py-3">
+                                                 <select
+                                                     value={band.autoApproval}
+-                                                    onChange={(e) => updateDosageBand(i, "autoApproval", e.target.value as CompetencyBand["autoApproval"])}
+-                                                    className="border border-[var(--border)] rounded px-2 py-1"
++                                                    disabled
++                                                    className="border border-[var(--border)] rounded px-2 py-1 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
+                                                 >
+                                                     <option value="enabled">Enabled</option>
+                                                     <option value="conditional">Conditional</option>
+@@ -211,8 +191,9 @@ export default function CompetencyModelPage() {
+                                                     min={0}
+                                                     max={100}
+                                                     value={band.accuracyMin}
+-                                                    onChange={(e) => updateDosageBand(i, "accuracyMin", Number(e.target.value) || 0)}
+-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16"
++                                                    readOnly
++                                                    disabled
++                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
+                                                 />
+                                             </td>
+                                             <td className="py-3">
+@@ -221,8 +202,9 @@ export default function CompetencyModelPage() {
+                                                     min={0}
+                                                     max={100}
+                                                     value={band.accuracyMax}
+-                                                    onChange={(e) => updateDosageBand(i, "accuracyMax", Number(e.target.value) || 100)}
+-                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16"
++                                                    readOnly
++                                                    disabled
++                                                    className="border border-[var(--border)] rounded px-2 py-1 w-16 bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80"
+                                                 />
+                                             </td>
+                                         </tr>
+@@ -230,7 +212,6 @@ export default function CompetencyModelPage() {
+                                 </tbody>
+                             </table>
+                         </div>
+-                        <Button className="mt-4">Save Version</Button>
+                     </CardContent>
+                 </Card>
+             )}
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index c7a1371..28f9399 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -116,6 +116,8 @@ export default function DashboardPage() {
+         [dimension, selectedValue]
+     );
+ 
++    const dosageTypeConfidenceBars = useMemo(() => avgConfidenceByDosage(), []);
++
+     const accuracyOverTime = useMemo(() => {
+         if (!selectedValue) return [];
+         if (dimension === "supplier") {
+@@ -194,11 +196,11 @@ export default function DashboardPage() {
+             <div className="grid gap-6 lg:grid-cols-2">
+                 <Card>
+                     <CardHeader>
+-                        <CardTitle>Weighted average confidence score</CardTitle>
++                        <CardTitle>Trust Score</CardTitle>
+                         <p className="text-sm text-[var(--muted)]">
+                             {selectedValue
+-                                ? `Average confidence for ${selectedLabel}`
+-                                : `Average confidence by ${dimension === "supplier" ? "supplier" : "dosage type"}`}
++                                ? ``
++                                : `Average trust score by ${dimension === "supplier" ? "supplier" : ""}`}
+                         </p>
+                     </CardHeader>
+                     <CardContent className="space-y-4">
+@@ -247,14 +249,68 @@ export default function DashboardPage() {
+ 
+                 <Card>
+                     <CardHeader>
+-                        <CardTitle>NDS forms by intelligence level</CardTitle>
++                        <CardTitle>Dosage type</CardTitle>
+                         <p className="text-sm text-[var(--muted)]">
+-                            Count of forms in Highly Intelligent, Intelligent, Needs Training for{" "}
+-                            {selectedValue ? selectedLabel : "all"}
++                            Average confidence by dosage type
+                         </p>
+                     </CardHeader>
+-                    <CardContent>
++                    <CardContent className="space-y-4">
++                        {dimension === "dosageType" && selectedValue && (
++                            <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)]/30 px-4 py-3 text-center">
++                                <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
++                                    Selected: {selectedLabel}
++                                </p>
++                                <p className="text-2xl font-bold tabular-nums" style={{ color: "var(--informational)" }}>
++                                    {weightedAvgConfidence}%
++                                </p>
++                            </div>
++                        )}
+                         <div className="h-[240px]">
++                            <ResponsiveContainer width="100%" height="100%">
++                                <BarChart
++                                    data={dosageTypeConfidenceBars}
++                                    margin={{ top: 8, right: 8, left: 8, bottom: 24 }}
++                                    layout="vertical"
++                                >
++                                    <CartesianGrid strokeDasharray="3 3" className="stroke-[var(--border)]" />
++                                    <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
++                                    <YAxis type="category" dataKey="name" width={88} tick={{ fontSize: 11 }} />
++                                    <Tooltip
++                                        formatter={(v: number | undefined) => [`${v != null ? v : 0}%`, "Avg confidence"]}
++                                        labelFormatter={(label) => `${label}`}
++                                    />
++                                    <Bar dataKey="avgConfidence" name="Avg confidence" radius={[0, 4, 4, 0]} maxBarSize={32}>
++                                        {dosageTypeConfidenceBars.map((entry) => (
++                                            <Cell
++                                                key={entry.name}
++                                                fill={
++                                                    dimension === "dosageType" && selectedValue && entry.name === selectedValue
++                                                        ? "var(--informational)"
++                                                        : "var(--muted)"
++                                                }
++                                                opacity={
++                                                    dimension === "dosageType" && selectedValue && entry.name !== selectedValue
++                                                        ? 0.5
++                                                        : 1
++                                                }
++                                            />
++                                        ))}
++                                    </Bar>
++                                </BarChart>
++                            </ResponsiveContainer>
++                        </div>
++                    </CardContent>
++                </Card>
++
++                <Card className="lg:col-span-2">
++                    <CardHeader>
++                        <CardTitle>Intelligence mix for selection</CardTitle>
++                        <p className="text-sm text-[var(--muted)]">
++                            Competency band counts for the current supplier or dosage drill-down (or all).
++                        </p>
++                    </CardHeader>
++                    <CardContent>
++                        <div className="h-[200px]">
+                             <ResponsiveContainer width="100%" height="100%">
+                                 <BarChart
+                                     data={drillDownData}
+@@ -265,7 +321,7 @@ export default function DashboardPage() {
+                                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={28} />
+                                     <Tooltip formatter={(v: number | undefined) => [v ?? 0, "Forms"]} />
+                                     <Bar dataKey="count" name="NDS forms" radius={[4, 4, 0, 0]}>
+-                                        {drillDownData.map((entry, i) => (
++                                        {drillDownData.map((entry) => (
+                                             <Cell key={entry.label} fill={entry.fill} />
+                                         ))}
+                                     </Bar>
+diff --git a/src/app/rules/extraction/[id]/edit/page.tsx b/src/app/rules/extraction/[id]/edit/page.tsx
+index 293907a..fbec856 100644
+--- a/src/app/rules/extraction/[id]/edit/page.tsx
++++ b/src/app/rules/extraction/[id]/edit/page.tsx
+@@ -6,13 +6,16 @@ import { useRouter, useParams, useSearchParams } from "next/navigation";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { Button, buttonVariants } from "@/components/ui/button";
+ import { Select } from "@/components/ui/select";
+-import { ArrowLeft, Plus } from "lucide-react";
++import { ArrowLeft, Plus, Pin } from "lucide-react";
+ import {
+   getExtractionRule,
+   updateExtractionRule,
+   createNewRuleVersion,
+   listCategories,
+   listVersionsForRule,
++  publishExtractionRuleVersion,
++  getActiveRuleVersionId,
++  setActiveRuleVersionId,
+ } from "@/data/extraction-store";
+ import { ExtractionRuleFormFields } from "../../extraction-rule-form-shared";
+ 
+@@ -41,23 +44,24 @@ export default function EditExtractionRulePage() {
+   const [prompt, setPrompt] = useState("");
+   const [example, setExample] = useState("");
+   const [specialInstruction, setSpecialInstruction] = useState("");
+-  const [hasSubmitted, setHasSubmitted] = useState(false);
+ 
+-  // Initialize selected version from query or first version
++  // Initialize / sync from URL query; otherwise keep user selection; default active or latest.
+   useEffect(() => {
+-    if (versions.length === 0) return;
+-    const fromQuery = versionFromQuery
+-      ? versions.find((v) => v.version === versionFromQuery)?.id
+-      : undefined;
+-    setSelectedVersionId(fromQuery ?? versions[0]!.id);
+-  }, [ruleBaseId, versionFromQuery, versions]);
++    const v = listVersionsForRule(ruleBaseId);
++    if (v.length === 0) return;
++    setSelectedVersionId((current) => {
++      const fromQuery = versionFromQuery ? v.find((x) => x.version === versionFromQuery)?.id : undefined;
++      if (fromQuery) return fromQuery;
++      if (current && v.some((x) => x.id === current)) return current;
++      const activeId = getActiveRuleVersionId(ruleBaseId);
++      const activeOk = activeId && v.some((x) => x.id === activeId);
++      const latest = v[v.length - 1]!.id;
++      return activeOk ? activeId! : latest;
++    });
++  }, [ruleBaseId, versionFromQuery]);
+ 
+   // Sync form when selected version changes
+   const selectedRule = selectedVersionId ? getExtractionRule(selectedVersionId) : undefined;
+-  useEffect(() => {
+-    setHasSubmitted(false);
+-  }, [selectedVersionId]);
+-
+   useEffect(() => {
+     if (selectedRule) {
+       setName(selectedRule.name);
+@@ -75,17 +79,7 @@ export default function EditExtractionRulePage() {
+     [categories, categoryId]
+   );
+ 
+-  const updatedRuleText = useMemo(() => {
+-    const lines: string[] = [];
+-    if (name.trim()) lines.push(`Name: ${name.trim()}`);
+-    if (categoryName) lines.push(`Category: ${categoryName}`);
+-    if (description.trim()) lines.push(`Description: ${description.trim()}`);
+-    if (role.trim()) lines.push(`Role:\n${role.trim()}`);
+-    if (prompt.trim()) lines.push(`Guidelines:\n${prompt.trim()}`);
+-    if (example.trim()) lines.push(`Example(s):\n${example.trim()}`);
+-    if (specialInstruction.trim()) lines.push(`Special instruction:\n${specialInstruction.trim()}`);
+-    return lines.join("\n\n");
+-  }, [name, categoryName, description, role, prompt, example, specialInstruction]);
++  const activeVersionId = getActiveRuleVersionId(ruleBaseId);
+ 
+   const handleSubmit = () => {
+     if (!selectedVersionId || !name.trim() || !categoryId) return;
+@@ -97,7 +91,17 @@ export default function EditExtractionRulePage() {
+       prompt: prompt.trim() || "—",
+       specialInstruction: specialInstruction.trim() || undefined,
+     });
+-    setHasSubmitted(true);
++  };
++
++  const handlePublish = () => {
++    if (!selectedVersionId) return;
++    publishExtractionRuleVersion(selectedVersionId);
++    router.push("/rules?published=1");
++  };
++
++  const handleSetActiveVersion = () => {
++    if (!selectedVersionId) return;
++    setActiveRuleVersionId(ruleBaseId, selectedVersionId);
+   };
+ 
+   const handleAddNewVersion = () => {
+@@ -149,11 +153,13 @@ export default function EditExtractionRulePage() {
+               <Select
+                 value={selectedVersionId}
+                 onChange={(e) => setSelectedVersionId(e.target.value)}
+-                className="w-32"
++                className="min-w-[8rem]"
+               >
+                 {versions.map((v) => (
+                   <option key={v.id} value={v.id}>
+                     v{v.version}
++                    {v.isPublished ? " (published)" : ""}
++                    {activeVersionId === v.id ? " (active)" : ""}
+                   </option>
+                 ))}
+               </Select>
+@@ -161,7 +167,13 @@ export default function EditExtractionRulePage() {
+             <Button type="button" variant="outline" size="sm" onClick={handleAddNewVersion}>
+               <Plus className="h-4 w-4 mr-1" /> Add new version
+             </Button>
++            <Button type="button" variant="secondary" size="sm" onClick={handleSetActiveVersion} disabled={!selectedVersionId}>
++              <Pin className="h-4 w-4 mr-1" /> Set active version
++            </Button>
+           </div>
++          <p className="text-xs text-[var(--muted)] pt-1">
++            The version selected above is loaded in the form. Use Set active version to mark which version is the working default for this rule.
++          </p>
+         </CardHeader>
+         <CardContent>
+           <ExtractionRuleFormFields
+@@ -182,10 +194,14 @@ export default function EditExtractionRulePage() {
+             specialInstruction={specialInstruction}
+             setSpecialInstruction={setSpecialInstruction}
+             categoryName={categoryName}
+-            hasSubmitted={hasSubmitted}
+-            updatedRuleText={updatedRuleText}
+             onSubmit={handleSubmit}
+             submitDisabled={!name.trim() || !categoryId}
++            lockNameAndCategory
++            testStepExtra={
++              <Button type="button" onClick={handlePublish} disabled={!selectedVersionId}>
++                Publish rule
++              </Button>
++            }
+             cancelSlot={
+               <Link href="/rules" className={buttonVariants({ variant: "outline" })}>
+                 Cancel
+diff --git a/src/app/rules/extraction/extraction-rule-form-shared.tsx b/src/app/rules/extraction/extraction-rule-form-shared.tsx
+index 5335599..f70a34d 100644
+--- a/src/app/rules/extraction/extraction-rule-form-shared.tsx
++++ b/src/app/rules/extraction/extraction-rule-form-shared.tsx
+@@ -1,12 +1,14 @@
+ "use client";
+ 
+ import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
+-import { Button, buttonVariants } from "@/components/ui/button";
++import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+ import { Select } from "@/components/ui/select";
++import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+ import { cn } from "@/lib/utils";
+ import type { RuleCategory } from "@/data/mock";
+ import { HdaPdfViewer, MOCK_HDA_OPTIONS } from "./hda-pdf-viewer";
++import { X } from "lucide-react";
+ 
+ type SmartPromptEditorProps = {
+   value: string;
+@@ -345,11 +347,15 @@ export type ExtractionRuleFormFieldsProps = {
+   specialInstruction: string;
+   setSpecialInstruction: (v: string) => void;
+   categoryName: string;
+-  hasSubmitted: boolean;
+-  updatedRuleText: string;
+   onSubmit: () => void;
+   submitDisabled: boolean;
+   cancelSlot: ReactNode;
++  /** When true, name and category cannot be changed (edit flow). */
++  lockNameAndCategory?: boolean;
++  /** Rendered below "Back to details" on the test step (e.g. Publish). */
++  testStepExtra?: ReactNode;
++  /** New rule: require explicit confirmation of the field name (blur + before test step). */
++  fieldNameConfirmation?: boolean;
+ };
+ 
+ export function ExtractionRuleFormFields({
+@@ -369,14 +375,72 @@ export function ExtractionRuleFormFields({
+   specialInstruction,
+   setSpecialInstruction,
+   categoryName,
+-  hasSubmitted,
+-  updatedRuleText,
+   onSubmit,
+   submitDisabled,
+   cancelSlot,
++  lockNameAndCategory = false,
++  testStepExtra,
++  fieldNameConfirmation = false,
+ }: ExtractionRuleFormFieldsProps) {
+   const [stepIndex, setStepIndex] = useState<0 | 1>(0);
+   const [selectedHdaId, setSelectedHdaId] = useState<string>(MOCK_HDA_OPTIONS[0]?.id ?? "");
++  const [fieldNameModalOpen, setFieldNameModalOpen] = useState(false);
++  const fieldNameInputRef = useRef<HTMLInputElement>(null);
++  const confirmedFieldNameRef = useRef<string>("");
++  const advanceAfterFieldNameConfirmRef = useRef(false);
++
++  const openFieldNameConfirm = useCallback((advanceAfter: boolean) => {
++    advanceAfterFieldNameConfirmRef.current = advanceAfter;
++    setFieldNameModalOpen(true);
++  }, []);
++
++  const confirmFieldName = useCallback(() => {
++    confirmedFieldNameRef.current = name.trim();
++    setFieldNameModalOpen(false);
++    if (advanceAfterFieldNameConfirmRef.current) {
++      advanceAfterFieldNameConfirmRef.current = false;
++      onSubmit();
++      setStepIndex(1);
++    }
++  }, [name, onSubmit]);
++
++  const dismissFieldNameModal = useCallback(() => {
++    advanceAfterFieldNameConfirmRef.current = false;
++    setFieldNameModalOpen(false);
++    requestAnimationFrame(() => fieldNameInputRef.current?.focus());
++  }, []);
++
++  const tryGoToTestStep = useCallback(() => {
++    if (!fieldNameConfirmation || lockNameAndCategory) {
++      onSubmit();
++      setStepIndex(1);
++      return;
++    }
++    const t = name.trim();
++    if (!t) return;
++    if (t !== confirmedFieldNameRef.current) {
++      openFieldNameConfirm(true);
++      return;
++    }
++    onSubmit();
++    setStepIndex(1);
++  }, [fieldNameConfirmation, lockNameAndCategory, name, onSubmit, openFieldNameConfirm]);
++
++  const handleFieldNameBlur = useCallback(() => {
++    if (!fieldNameConfirmation || lockNameAndCategory) return;
++    const t = name.trim();
++    if (!t || t === confirmedFieldNameRef.current) return;
++    openFieldNameConfirm(false);
++  }, [fieldNameConfirmation, lockNameAndCategory, name, openFieldNameConfirm]);
++
++  useEffect(() => {
++    if (!fieldNameModalOpen) return;
++    const onKey = (e: KeyboardEvent) => {
++      if (e.key === "Escape") dismissFieldNameModal();
++    };
++    window.addEventListener("keydown", onKey);
++    return () => window.removeEventListener("keydown", onKey);
++  }, [fieldNameModalOpen, dismissFieldNameModal]);
+   const selectedHda = useMemo(() => {
+     return MOCK_HDA_OPTIONS.find((o) => o.id === selectedHdaId) ?? MOCK_HDA_OPTIONS[0];
+   }, [selectedHdaId]);
+@@ -444,13 +508,31 @@ export function ExtractionRuleFormFields({
+           <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 items-start">
+             <div className="space-y-4">
+               <div>
+-                <label className="block text-sm font-medium mb-1">Name</label>
+-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Applicant name from header" />
++                <label className="block text-sm font-medium mb-1">Field Name</label>
++                <Input
++                  ref={fieldNameInputRef}
++                  value={name}
++                  onChange={(e) => setName(e.target.value)}
++                  onBlur={handleFieldNameBlur}
++                  placeholder="e.g. Applicant name from header"
++                  disabled={lockNameAndCategory}
++                  className={lockNameAndCategory ? "bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80" : undefined}
++                />
++                {fieldNameConfirmation && !lockNameAndCategory ? (
++                  <p className="mt-1 text-xs text-[var(--muted)]">
++                    You will be asked to confirm this attribute name when you leave the field or continue to testing.
++                  </p>
++                ) : null}
+               </div>
+ 
+               <div>
+                 <label className="block text-sm font-medium mb-1">Category</label>
+-                <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
++                <Select
++                  value={categoryId}
++                  onChange={(e) => setCategoryId(e.target.value)}
++                  disabled={lockNameAndCategory}
++                  className={lockNameAndCategory ? "bg-[var(--sidebar)] text-[var(--muted)] cursor-not-allowed opacity-80" : undefined}
++                >
+                   {categories.map((c) => (
+                     <option key={c.id} value={c.id}>
+                       {c.name}
+@@ -525,14 +607,7 @@ export function ExtractionRuleFormFields({
+               </div>
+ 
+               <div className="flex flex-col gap-2">
+-                <Button
+-                  type="button"
+-                  onClick={() => {
+-                    onSubmit();
+-                    setStepIndex(1);
+-                  }}
+-                  disabled={submitDisabled}
+-                >
++                <Button type="button" onClick={tryGoToTestStep} disabled={submitDisabled}>
+                   Move to next step to test it
+                 </Button>
+                 {cancelSlot}
+@@ -568,12 +643,50 @@ export function ExtractionRuleFormFields({
+                 <Button type="button" variant="outline" onClick={() => setStepIndex(0)}>
+                   Back to details
+                 </Button>
++                {testStepExtra}
+                 {cancelSlot}
+               </div>
+             </div>
+           </div>
+         )}
+       </div>
++
++      {fieldNameModalOpen && (
++        <div
++          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
++          role="dialog"
++          aria-modal="true"
++          aria-labelledby="field-name-confirm-title"
++          onClick={dismissFieldNameModal}
++        >
++          <Card className="w-full max-w-md shadow-lg" onClick={(e) => e.stopPropagation()}>
++            <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
++              <CardTitle id="field-name-confirm-title" className="text-lg">
++                Confirm field name
++              </CardTitle>
++              <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={dismissFieldNameModal} aria-label="Close">
++                <X className="h-4 w-4" />
++              </Button>
++            </CardHeader>
++            <CardContent>
++              <p className="text-sm text-[var(--muted)]">
++                Use this attribute rule name?
++              </p>
++              <p className="mt-3 rounded-md border border-[var(--border)] bg-[var(--sidebar)]/40 px-3 py-2 text-sm font-medium">
++                {name.trim() || "—"}
++              </p>
++            </CardContent>
++            <CardFooter className="flex flex-wrap justify-end gap-2 border-t border-[var(--border)]">
++              <Button type="button" variant="outline" onClick={dismissFieldNameModal}>
++                Edit name
++              </Button>
++              <Button type="button" onClick={confirmFieldName}>
++                Confirm
++              </Button>
++            </CardFooter>
++          </Card>
++        </div>
++      )}
+     </>
+   );
+ }
+diff --git a/src/app/rules/extraction/new/page.tsx b/src/app/rules/extraction/new/page.tsx
+index d21246f..5e2bdd7 100644
+--- a/src/app/rules/extraction/new/page.tsx
++++ b/src/app/rules/extraction/new/page.tsx
+@@ -2,13 +2,21 @@
+ 
+ import { useState, useMemo } from "react";
+ import Link from "next/link";
++import { useRouter } from "next/navigation";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+-import { buttonVariants } from "@/components/ui/button";
++import { Button, buttonVariants } from "@/components/ui/button";
+ import { ArrowLeft } from "lucide-react";
+-import { createExtractionRule, listCategories, updateExtractionRule } from "@/data/extraction-store";
++import {
++  createExtractionRule,
++  listCategories,
++  updateExtractionRule,
++  publishExtractionRuleVersion,
++  setActiveRuleVersionId,
++} from "@/data/extraction-store";
+ import { ExtractionRuleFormFields } from "../extraction-rule-form-shared";
+ 
+ export default function NewExtractionRulePage() {
++  const router = useRouter();
+   const categories = listCategories();
+   const [name, setName] = useState("");
+   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
+@@ -17,7 +25,6 @@ export default function NewExtractionRulePage() {
+   const [prompt, setPrompt] = useState("");
+   const [example, setExample] = useState("");
+   const [specialInstruction, setSpecialInstruction] = useState("");
+-  const [hasSubmitted, setHasSubmitted] = useState(false);
+   const [createdVersionId, setCreatedVersionId] = useState<string | null>(null);
+ 
+   const categoryName = useMemo(
+@@ -25,18 +32,6 @@ export default function NewExtractionRulePage() {
+     [categories, categoryId]
+   );
+ 
+-  const updatedRuleText = useMemo(() => {
+-    const lines: string[] = [];
+-    if (name.trim()) lines.push(`Name: ${name.trim()}`);
+-    if (categoryName) lines.push(`Category: ${categoryName}`);
+-    if (description.trim()) lines.push(`Description: ${description.trim()}`);
+-    if (role.trim()) lines.push(`Role:\n${role.trim()}`);
+-    if (prompt.trim()) lines.push(`Guidelines:\n${prompt.trim()}`);
+-    if (example.trim()) lines.push(`Example(s):\n${example.trim()}`);
+-    if (specialInstruction.trim()) lines.push(`Special instruction:\n${specialInstruction.trim()}`);
+-    return lines.join("\n\n");
+-  }, [name, categoryName, description, role, prompt, example, specialInstruction]);
+-
+   const handleSubmit = () => {
+     if (!name.trim() || !categoryId) return;
+     if (createdVersionId) {
+@@ -58,8 +53,37 @@ export default function NewExtractionRulePage() {
+         specialInstruction: specialInstruction.trim() || undefined,
+       });
+       setCreatedVersionId(newRule.id);
++      setActiveRuleVersionId(newRule.ruleBaseId, newRule.id);
+     }
+-    setHasSubmitted(true);
++  };
++
++  const handlePublish = () => {
++    if (!name.trim() || !categoryId) return;
++    let versionId = createdVersionId;
++    if (!versionId) {
++      const newRule = createExtractionRule({
++        name: name.trim(),
++        categoryId,
++        description: description.trim() || undefined,
++        role: role.trim() || undefined,
++        prompt: prompt.trim() || "—",
++        specialInstruction: specialInstruction.trim() || undefined,
++      });
++      versionId = newRule.id;
++      setCreatedVersionId(newRule.id);
++      setActiveRuleVersionId(newRule.ruleBaseId, newRule.id);
++    } else {
++      updateExtractionRule(versionId, {
++        name: name.trim(),
++        categoryId,
++        description: description.trim() || undefined,
++        role: role.trim() || undefined,
++        prompt: prompt.trim() || "—",
++        specialInstruction: specialInstruction.trim() || undefined,
++      });
++    }
++    publishExtractionRuleVersion(versionId);
++    router.push("/rules?published=1");
+   };
+ 
+   return (
+@@ -69,7 +93,7 @@ export default function NewExtractionRulePage() {
+           <ArrowLeft className="h-5 w-5" />
+         </Link>
+         <div>
+-          <h1 className="text-2xl font-semibold tracking-tight">New Extraction Rule</h1>
++          <h1 className="text-2xl font-semibold tracking-tight">New Attribute Rule</h1>
+           <p className="text-[var(--muted)] text-sm">{name.trim() || "Draft"}</p>
+         </div>
+       </div>
+@@ -96,8 +120,6 @@ export default function NewExtractionRulePage() {
+             specialInstruction={specialInstruction}
+             setSpecialInstruction={setSpecialInstruction}
+             categoryName={categoryName}
+-            hasSubmitted={hasSubmitted}
+-            updatedRuleText={updatedRuleText}
+             onSubmit={handleSubmit}
+             submitDisabled={!name.trim() || !categoryId}
+             cancelSlot={
+@@ -105,6 +127,12 @@ export default function NewExtractionRulePage() {
+                 Cancel
+               </Link>
+             }
++            fieldNameConfirmation
++            testStepExtra={
++              <Button type="button" onClick={handlePublish} disabled={!name.trim() || !categoryId}>
++                Publish rule
++              </Button>
++            }
+           />
+         </CardContent>
+       </Card>
+diff --git a/src/app/rules/page.tsx b/src/app/rules/page.tsx
+index fe70085..136581e 100644
+--- a/src/app/rules/page.tsx
++++ b/src/app/rules/page.tsx
+@@ -1,6 +1,8 @@
+ "use client";
+ 
+ import Link from "next/link";
++import { useSearchParams } from "next/navigation";
++import { Suspense } from "react";
+ import {
+   Table,
+   TableBody,
+@@ -11,15 +13,14 @@ import {
+ } from "@/components/ui/table";
+ import { Button } from "@/components/ui/button";
+ import { Card, CardContent } from "@/components/ui/card";
+-import {
+-  listRuleBases,
+-  listCategories,
+-  listMappingsByRuleBase,
+-} from "@/data/extraction-store";
++import { listRuleBases, listCategories } from "@/data/extraction-store";
+ import { buttonVariants } from "@/components/ui/button";
+-import { Plus, Pencil, FolderOpen, Link2 } from "lucide-react";
++import { Plus, Pencil } from "lucide-react";
++
++function RulesListInner() {
++  const searchParams = useSearchParams();
++  const published = searchParams.get("published") === "1";
+ 
+-export default function RulesListPage() {
+   const categories = listCategories();
+   const ruleBases = listRuleBases();
+   const categoryById = Object.fromEntries(categories.map((c) => [c.id, c.name]));
+@@ -32,18 +33,21 @@ export default function RulesListPage() {
+           <p className="text-[var(--muted)] text-sm">Extraction rules with natural language prompts and versions</p>
+         </div>
+         <div className="flex gap-2">
+-          <Link href="/rules/categories" className={buttonVariants({ variant: "outline" })}>
+-            <FolderOpen className="h-4 w-4 mr-2" /> Categories
+-          </Link>
+-          <Link href="/rules/mapping" className={buttonVariants({ variant: "outline" })}>
+-            <Link2 className="h-4 w-4 mr-2" /> Field mapping
+-          </Link>
+           <Link href="/rules/extraction/new" className={buttonVariants()}>
+             <Plus className="h-4 w-4 mr-2" /> New rule
+           </Link>
+         </div>
+       </div>
+ 
++      {published && (
++        <p
++          className="rounded-md border border-[var(--safe)] bg-[var(--safe)]/10 px-4 py-3 text-sm text-[var(--foreground)]"
++          role="status"
++        >
++          Your Rule has been Published!
++        </p>
++      )}
++
+       <Card>
+         <CardContent className="p-0">
+           <Table>
+@@ -51,9 +55,9 @@ export default function RulesListPage() {
+               <TableRow>
+                 <TableHead>Rule Name</TableHead>
+                 <TableHead>Category</TableHead>
+-                <TableHead>Versions</TableHead>
++                <TableHead>Current version</TableHead>
++                <TableHead>Total versions</TableHead>
+                 <TableHead>Last Modified</TableHead>
+-                <TableHead># Mappings</TableHead>
+                 <TableHead className="w-[100px]">Actions</TableHead>
+               </TableRow>
+             </TableHeader>
+@@ -62,9 +66,9 @@ export default function RulesListPage() {
+                 <TableRow key={r.ruleBaseId}>
+                   <TableCell className="font-medium">{r.name}</TableCell>
+                   <TableCell>{categoryById[r.categoryId] ?? r.categoryId}</TableCell>
++                  <TableCell>v{r.currentVersion}</TableCell>
+                   <TableCell>{r.versionCount}</TableCell>
+                   <TableCell>{r.lastModified}</TableCell>
+-                  <TableCell>{listMappingsByRuleBase(r.ruleBaseId).length}</TableCell>
+                   <TableCell>
+                     <Link href={`/rules/extraction/${r.ruleBaseId}/edit`}>
+                       <Button variant="ghost" size="sm" title="Edit">
+@@ -81,3 +85,11 @@ export default function RulesListPage() {
+     </div>
+   );
+ }
++
++export default function RulesListPage() {
++  return (
++    <Suspense fallback={<div className="p-6 text-[var(--muted)]">Loading…</div>}>
++      <RulesListInner />
++    </Suspense>
++  );
++}
+diff --git a/src/components/shell/header.tsx b/src/components/shell/header.tsx
+index ec3cfc8..a798b37 100644
+--- a/src/components/shell/header.tsx
++++ b/src/components/shell/header.tsx
+@@ -3,8 +3,6 @@
+ import { Search, Bell, User } from "lucide-react";
+ import { Input } from "@/components/ui/input";
+ import { Button } from "@/components/ui/button";
+-import { Badge } from "@/components/ui/badge";
+-
+ export function Header() {
+   return (
+     <header className="flex h-14 items-center gap-4 border-b border-[var(--border)] bg-[var(--card)] px-6">
+@@ -18,7 +16,6 @@ export function Header() {
+         </div>
+       </div>
+       <div className="flex items-center gap-2">
+-        <Badge variant="safe" className="text-xs">Model: Highly Intelligent</Badge>
+         <Button variant="ghost" size="icon" aria-label="Notifications">
+           <Bell className="h-5 w-5" />
+         </Button>
+diff --git a/src/data/extraction-store.ts b/src/data/extraction-store.ts
+index b32eed9..7a660e9 100644
+--- a/src/data/extraction-store.ts
++++ b/src/data/extraction-store.ts
+@@ -158,6 +158,7 @@ export function createExtractionRule(data: {
+         specialInstruction: data.specialInstruction,
+         version,
+         lastModified: new Date().toISOString().slice(0, 10),
++        isPublished: false,
+     };
+     extractionRules.push(rule);
+     return rule;
+@@ -185,6 +186,7 @@ export function createNewRuleVersion(
+         lastModified: new Date().toISOString().slice(0, 10),
+         lastEditedBy: data.lastEditedBy ?? "system",
+         lastEditedAt: data.lastEditedAt ?? new Date().toISOString(),
++        isPublished: false,
+     };
+     extractionRules.push(rule);
+     return rule;
+@@ -204,6 +206,18 @@ export function updateExtractionRule(
+     return extractionRules[i];
+ }
+ 
++/** Mark one version as the published production rule for its base; clears others. */
++export function publishExtractionRuleVersion(versionedRuleId: string): ExtractionRule | undefined {
++    const rule = extractionRules.find((r) => r.id === versionedRuleId);
++    if (!rule) return undefined;
++    for (const r of extractionRules) {
++        if (r.ruleBaseId === rule.ruleBaseId) {
++            r.isPublished = r.id === versionedRuleId;
++        }
++    }
++    return rule;
++}
++
+ export function listVersionsForRule(ruleBaseId: string): ExtractionRule[] {
+     const list = extractionRules.filter((r) => r.ruleBaseId === ruleBaseId);
+     list.sort((a, b) => {
+@@ -220,6 +234,8 @@ export interface RuleBaseInfo {
+     name: string;
+     categoryId: string;
+     versionCount: number;
++    /** Latest version label for this rule base (e.g. "1.2"). */
++    currentVersion: string;
+     lastModified: string;
+ }
+ 
+@@ -244,6 +260,7 @@ export function listRuleBases(): RuleBaseInfo[] {
+             name: first.name,
+             categoryId: first.categoryId,
+             versionCount: versions.length,
++            currentVersion: last.version,
+             lastModified: last.lastModified,
+         };
+     });
+@@ -372,6 +389,42 @@ export function setFieldDecision(applicationId: string, fieldKey: string, decisi
+     }
+ }
+ 
++export type ApplicationReviewStatus = "under_review" | "ready_for_review" | "reviewed";
++
++const applicationFinalApproved: Record<string, boolean> = {};
++
++export function getApplicationFinalApproved(applicationId: string): boolean {
++    return applicationFinalApproved[applicationId] === true;
++}
++
++export function setApplicationFinalApproved(applicationId: string, approved: boolean): void {
++    applicationFinalApproved[applicationId] = approved;
++}
++
++/** Derived review state for list/detail: all fields checked + final approve gates Ready vs Reviewed. */
++export function getApplicationReviewStatus(applicationId: string): ApplicationReviewStatus {
++    const fields = getExtractedFieldsForApplication(applicationId);
++    if (fields.length === 0) return "under_review";
++    const allFieldChecked = fields.every((f) => getFieldDecision(applicationId, f.field) === "approved");
++    if (!allFieldChecked) return "under_review";
++    if (getApplicationFinalApproved(applicationId)) return "reviewed";
++    return "ready_for_review";
++}
++
++const activeRuleVersionByBaseId: Record<string, string> = {};
++
++export function getActiveRuleVersionId(ruleBaseId: string): string | undefined {
++    const id = activeRuleVersionByBaseId[ruleBaseId];
++    if (id && extractionRules.some((r) => r.id === id)) return id;
++    return undefined;
++}
++
++export function setActiveRuleVersionId(ruleBaseId: string, versionedRuleId: string): void {
++    const rule = extractionRules.find((r) => r.id === versionedRuleId && r.ruleBaseId === ruleBaseId);
++    if (!rule) return;
++    activeRuleVersionByBaseId[ruleBaseId] = versionedRuleId;
++}
++
+ // --- Rule performance (aggregate precision across applications) ---
+ export interface RulePerformanceStat {
+     ruleBaseId: string;
+diff --git a/src/data/mock.ts b/src/data/mock.ts
+index f942dd7..66b3f07 100644
+--- a/src/data/mock.ts
++++ b/src/data/mock.ts
+@@ -232,6 +232,8 @@ export interface ExtractionRule {
+   lastModified: string;
+   lastEditedBy?: string;
+   lastEditedAt?: string;
++  /** Published production version for this rule base (at most one per base). */
++  isPublished?: boolean;
+ }
+ 
+ export interface RuleFieldMapping {
+-- 
+2.45.1
+
