@@ -1,0 +1,181 @@
+From c73ee8ef1e2cb49598bc83bb2acff5d44701b712 Mon Sep 17 00:00:00 2001
+From: Shishir Umrao <shishirumrao.knp@gmail.com>
+Date: Tue, 31 Mar 2026 20:12:07 +0530
+Subject: [PATCH] update
+
+---
+ src/app/page.tsx | 95 ++++++++++++++++++++++++++++++++++++------------
+ 1 file changed, 71 insertions(+), 24 deletions(-)
+
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index 0031cdc..1262f03 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -42,10 +42,10 @@ const CHART_LINE_COLORS = [
+ function mergeAccuracySeries<K extends string>(
+     keys: readonly K[],
+     getSeries: (k: K) => { week: string; accuracy: number }[]
+-): { week: string; [key: string]: string | number }[] {
++): { week: string;[key: string]: string | number }[] {
+     const weeks = getSeries(keys[0]!).map((w) => w.week);
+     return weeks.map((week) => {
+-        const row: { week: string; [key: string]: string | number } = { week };
++        const row: { week: string;[key: string]: string | number } = { week };
+         for (const k of keys) {
+             const pt = getSeries(k).find((x) => x.week === week);
+             row[k] = pt?.accuracy ?? 0;
+@@ -55,12 +55,14 @@ function mergeAccuracySeries<K extends string>(
+ }
+ 
+ function addOthersSeries(
+-    rows: { week: string; [key: string]: string | number }[],
+-    keys: string[]
+-): { week: string; [key: string]: string | number }[] {
++    rows: { week: string;[key: string]: string | number }[],
++    keys: string[],
++    selectedKey: string | null = null
++): { week: string;[key: string]: string | number }[] {
++    const othersKeys = keys.filter((key) => (selectedKey ? key !== selectedKey : true));
+     return rows.map((row) => {
+-        const sum = keys.reduce((acc, key) => acc + Number(row[key] ?? 0), 0);
+-        const avg = keys.length ? sum / keys.length : 0;
++        const sum = othersKeys.reduce((acc, key) => acc + Number(row[key] ?? 0), 0);
++        const avg = othersKeys.length ? sum / othersKeys.length : 0;
+         return { ...row, Others: Math.round(avg * 10) / 10 };
+     });
+ }
+@@ -110,6 +112,8 @@ function avgLatestAccuracy(values: { week: string; accuracy: number }[]): number
+ export default function DashboardPage() {
+     const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
+     const [selectedDosage, setSelectedDosage] = useState<string | null>(null);
++    const [statsRangeType, setStatsRangeType] = useState<"daily" | "weekly" | "monthly">("weekly");
++    const [statsDateRange, setStatsDateRange] = useState("4-weeks");
+ 
+     const supplierBars = useMemo(() => avgConfidenceBySupplier(), []);
+     const dosageBars = useMemo(() => avgConfidenceByDosage(), []);
+@@ -182,14 +186,14 @@ export default function DashboardPage() {
+     const supplierAccuracyMerged = useMemo(() => {
+         const keys = SUPPLIERS as unknown as string[];
+         const merged = mergeAccuracySeries(SUPPLIERS as unknown as Supplier[], (s) => mockAccuracyOverTimeBySupplier[s]);
+-        return addOthersSeries(merged, keys);
+-    }, []);
++        return addOthersSeries(merged, keys, selectedSupplier);
++    }, [selectedSupplier]);
+ 
+     const dosageAccuracyMerged = useMemo(() => {
+         const keys = DOSAGE_TYPES as unknown as string[];
+         const merged = mergeAccuracySeries(DOSAGE_TYPES as unknown as DosageType[], (d) => mockAccuracyOverTimeByDosage[d]);
+-        return addOthersSeries(merged, keys);
+-    }, []);
++        return addOthersSeries(merged, keys, selectedDosage);
++    }, [selectedDosage]);
+ 
+     const supplierLineOpacity = (name: string) => {
+         if (!selectedSupplier) return 1;
+@@ -225,11 +229,40 @@ export default function DashboardPage() {
+ 
+     return (
+         <div className="space-y-6">
+-            <div>
+-                <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+-                <p className="text-[var(--muted)] text-sm">
+-                    Confidence score weightage, NDS form intelligence drill-down, and accuracy over time
+-                </p>
++            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
++                <div>
++                    <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
++                    <p className="text-[var(--muted)] text-sm">
++                        Confidence score weightage, drill-down, and accuracy over time
++                    </p>
++                </div>
++                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
++                    <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
++                        Range type
++                        <Select
++                            value={statsRangeType}
++                            onChange={(e) => setStatsRangeType(e.target.value as "daily" | "weekly" | "monthly")}
++                            className="w-[140px]"
++                        >
++                            <option value="daily">Daily</option>
++                            <option value="weekly">Weekly</option>
++                            <option value="monthly">Monthly</option>
++                        </Select>
++                    </label>
++                    <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
++                        Date range
++                        <Select
++                            value={statsDateRange}
++                            onChange={(e) => setStatsDateRange(e.target.value)}
++                            className="w-[160px]"
++                        >
++                            <option value="1-week">1 week</option>
++                            <option value="2-weeks">2 weeks</option>
++                            <option value="4-weeks">4 weeks</option>
++                            <option value="8-weeks">8 weeks</option>
++                        </Select>
++                    </label>
++                </div>
+             </div>
+ 
+             <Card>
+@@ -438,7 +471,13 @@ export default function DashboardPage() {
+                                 <LineChart data={supplierAccuracyMerged} margin={{ top: 8, right: 8, left: 4, bottom: 8 }}>
+                                     <CartesianGrid strokeDasharray="3 3" className="stroke-[var(--border)]" />
+                                     <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+-                                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={36} />
++                                    <YAxis
++                                        domain={[50, 100]}
++                                        ticks={[50, 75, 100]}
++                                        allowDecimals={false}
++                                        tick={{ fontSize: 11 }}
++                                        width={36}
++                                    />
+                                     <Tooltip formatter={(v: number | undefined) => [v != null ? `${v}%` : "", "Accuracy"]} />
+                                     <Legend wrapperStyle={{ fontSize: 11 }} />
+                                     {[...(SUPPLIERS as unknown as string[]), "Others"].map((name, i) => (
+@@ -447,9 +486,10 @@ export default function DashboardPage() {
+                                             type="monotone"
+                                             dataKey={name}
+                                             name={name}
+-                                            stroke={CHART_LINE_COLORS[i % CHART_LINE_COLORS.length]}
+-                                            strokeWidth={2}
+-                                            dot={{ r: 3 }}
++                                            stroke={name === "Others" ? "var(--foreground)" : CHART_LINE_COLORS[i % CHART_LINE_COLORS.length]}
++                                            strokeWidth={name === "Others" ? 3 : 2}
++                                            strokeDasharray={name === "Others" ? "6 3" : undefined}
++                                            dot={name === "Others" ? { r: 4, strokeWidth: 2 } : { r: 3 }}
+                                             strokeOpacity={supplierLineOpacity(name)}
+                                             opacity={supplierLineOpacity(name)}
+                                         />
+@@ -473,7 +513,13 @@ export default function DashboardPage() {
+                                 <LineChart data={dosageAccuracyMerged} margin={{ top: 8, right: 8, left: 4, bottom: 8 }}>
+                                     <CartesianGrid strokeDasharray="3 3" className="stroke-[var(--border)]" />
+                                     <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+-                                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={36} />
++                                    <YAxis
++                                        domain={[50, 100]}
++                                        ticks={[50, 75, 100]}
++                                        allowDecimals={false}
++                                        tick={{ fontSize: 11 }}
++                                        width={36}
++                                    />
+                                     <Tooltip formatter={(v: number | undefined) => [v != null ? `${v}%` : "", "Accuracy"]} />
+                                     <Legend wrapperStyle={{ fontSize: 11 }} />
+                                     {[...(DOSAGE_TYPES as unknown as string[]), "Others"].map((name, i) => (
+@@ -482,9 +528,10 @@ export default function DashboardPage() {
+                                             type="monotone"
+                                             dataKey={name}
+                                             name={name}
+-                                            stroke={CHART_LINE_COLORS[i % CHART_LINE_COLORS.length]}
+-                                            strokeWidth={2}
+-                                            dot={{ r: 3 }}
++                                            stroke={name === "Others" ? "var(--foreground)" : CHART_LINE_COLORS[i % CHART_LINE_COLORS.length]}
++                                            strokeWidth={name === "Others" ? 3 : 2}
++                                            strokeDasharray={name === "Others" ? "6 3" : undefined}
++                                            dot={name === "Others" ? { r: 4, strokeWidth: 2 } : { r: 3 }}
+                                             strokeOpacity={dosageLineOpacity(name)}
+                                             opacity={dosageLineOpacity(name)}
+                                         />
+-- 
+2.45.1
+
