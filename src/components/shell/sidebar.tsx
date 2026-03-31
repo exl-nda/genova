@@ -19,7 +19,7 @@ const navItems = [
     { href: "/applications", label: "HDA Forms", icon: FileStack },
     { href: "/rules", label: "Rules Management", icon: BookOpen },
     { href: "/competency", label: "Competency Model", icon: Brain },
-    { href: "/methodology", label: "Methodology", icon: FlaskConical },
+    { href: "/methodology", label: "Score Methodology", icon: FlaskConical },
 ];
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
